@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raccoonrat.dev/cnais/context.schema.json",
+  "title": "Context",
+  "description": "Normalized runtime context snapshot (Spec v1.6 §7).",
+  "type": "object",
+  "required": ["schema_version", "context_id", "trace_id", "request_id", "stage"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "const": "1.6" },
+    "context_id": { "type": "string" },
+    "trace_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "stage": { "enum": ["input", "retrieval", "tool_pre_execution", "output"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "role": { "type": "string" },
+        "privilege_level": { "enum": ["low", "medium", "high", "admin", "unknown"] },
+        "auth_strength": { "enum": ["none", "password", "mfa", "step_up", "unknown"] }
+      }
+    },
+    "application": {
+      "type": "object",
+      "properties": {
+        "app_id": { "type": "string" },
+        "runtime_id": { "type": "string" },
+        "environment": { "enum": ["shadow", "canary", "prod"] },
+        "integration_point": { "enum": ["ai_gateway", "app_middleware", "mcp_proxy", "service_mesh", "unknown"] }
+      }
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "model_id": { "type": "string" },
+        "model_provider": { "enum": ["internal", "external", "unknown"] },
+        "model_security_profile": { "enum": ["unknown", "baseline", "hardened", "restricted"] }
+      }
+    },
+    "session": {
+      "type": "object",
+      "properties": {
+        "session_id": { "type": "string" },
+        "conversation_id": { "type": "string" },
+        "turn_id": { "type": "string" },
+        "agentic_mode": { "enum": ["none", "tool_assisted", "agentic", "unknown"] }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "data_asset_type": { "enum": ["pii", "customer_contract", "source_code", "financial_data", "product_roadmap", "credential", "unknown"] },
+        "sensitivity": { "enum": ["public", "internal", "confidential", "restricted", "regulated", "unknown"] },
+        "owner": { "type": "string" },
+        "provenance": { "enum": ["user_input", "rag", "tool_result", "model_output", "unknown"] },
+        "classification_source": { "enum": ["label", "detector", "registry", "inherited", "unknown"] }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "properties": {
+        "boundary": { "enum": ["same_user", "same_tenant", "cross_tenant", "external", "unknown"] },
+        "channel": { "enum": ["chat", "email", "api", "file", "tool", "unknown"] },
+        "recipient_type": { "enum": ["user", "group", "external_address", "system", "unknown"] }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "tool_id": { "type": "string" },
+        "server_id": { "type": "string" },
+        "tool_version": { "type": "string" },
+        "schema_hash": { "type": "string" },
+        "manifest_hash": { "type": "string" },
+        "description_hash": { "type": "string" },
+        "permission_class": { "enum": ["read", "write", "external_send", "privileged", "unknown"] },
+        "trust_state": { "enum": ["approved", "pinned", "drifted", "revoked", "unknown"] },
+        "has_prior_approval": { "type": "boolean" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "region": { "type": "string" },
+        "deployment_id": { "type": "string" },
+        "policy_bundle_version": { "type": "string" },
+        "fusion_config_version": { "type": "string" },
+        "threshold_config_version": { "type": "string" },
+        "matrix_version": { "type": "string" }
+      }
+    }
+  }
+}

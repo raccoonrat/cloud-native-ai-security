@@ -1,0 +1,20 @@
+{
+  "_comment": "Stage x Action Matrix - canonical MACHINE artifact (Spec v1.6 §2). Single source backing PL-002 lint, decision-output validation, and enforcement-input validation. The YAML form in the v1.6 spec doc mirrors this file. Release-gated: any change MUST produce a GateEvaluationRecord and bump matrix_version.",
+  "schema_version": "1.6",
+  "matrix_version": "stage_action_matrix_v1",
+  "stages": ["input", "retrieval", "tool_pre_execution", "output"],
+  "actions": [
+    { "action": "allow", "allowed_in": ["input", "retrieval", "tool_pre_execution", "output"], "requires": [], "evidence": "minimal" },
+    { "action": "audit_only", "allowed_in": ["input", "retrieval", "tool_pre_execution", "output"], "requires": ["audit_required"], "evidence": "minimal" },
+    { "action": "require_review", "allowed_in": ["input", "retrieval", "tool_pre_execution", "output"], "requires": ["review_queue"], "evidence": "full" },
+    { "action": "deny", "allowed_in": ["input", "retrieval", "tool_pre_execution"], "requires": ["reason_code"], "evidence": "full" },
+    { "action": "block", "allowed_in": ["output"], "requires": ["reason_code"], "evidence": "full" },
+    { "action": "sanitize", "allowed_in": ["input"], "requires": ["sanitize_profile"], "evidence": "full" },
+    { "action": "mask", "allowed_in": ["input", "output"], "requires": ["mask_profile"], "evidence": "full" },
+    { "action": "redact", "allowed_in": ["output"], "requires": ["redaction_profile"], "evidence": "full" },
+    { "action": "restrict_scope", "allowed_in": ["retrieval"], "requires": ["scope_restriction"], "evidence": "full" },
+    { "action": "annotate_risk", "allowed_in": ["retrieval"], "requires": ["risk_annotation"], "evidence": "minimal" },
+    { "action": "require_confirmation", "allowed_in": ["tool_pre_execution"], "requires": ["approval_binding"], "evidence": "full" },
+    { "action": "step_up_auth", "allowed_in": ["tool_pre_execution"], "requires": ["target_auth_strength"], "evidence": "full" }
+  ]
+}
