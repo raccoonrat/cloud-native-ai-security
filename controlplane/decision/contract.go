@@ -122,6 +122,7 @@ type EvidenceBlock struct {
 	EvidenceRequired        bool     `json:"evidence_required"`
 	EvidenceRefs            []string `json:"evidence_refs"`
 	MinimalEvidenceCommitted bool    `json:"minimal_evidence_committed"`
+	EvidenceCompleteness    float64  `json:"evidence_completeness"`
 }
 
 // ReplayBinding pins every version needed for deterministic replay (Spec v1.6 §1.4, §14).

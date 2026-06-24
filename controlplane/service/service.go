@@ -17,6 +17,7 @@ import (
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/matrix"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/model"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/policy"
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/replay"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/sign"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/tool"
 )
@@ -63,8 +64,9 @@ type Service struct {
 	fusionCfg fusion.Config
 	cfg       Config
 
-	mu    sync.Mutex
-	store map[string]decision.Contract // idempotency: trace|request|stage -> decision
+	mu        sync.Mutex
+	store     map[string]decision.Contract // idempotency: trace|request|stage -> decision
+	snapshots map[string]replay.Inputs     // decision_id -> replay snapshot (§14)
 }
 
 // New builds a Service with sensible MVP defaults for any nil dependency.
@@ -84,6 +86,7 @@ func New(m *matrix.Matrix, bundle policy.Bundle, reg DetectorRegistry, ev eviden
 		fusionCfg: fusion.DefaultConfig(),
 		cfg:       cfg,
 		store:     map[string]decision.Contract{},
+		snapshots: map[string]replay.Inputs{},
 	}
 }
 
@@ -262,6 +265,9 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 		return EvaluateResponse{}, fmt.Errorf("service: invalid decision: %w", err)
 	}
 
+	// Minimal synchronous evidence completeness (§13.3/§13.5).
+	c.Evidence.EvidenceCompleteness = evidence.BuildFromContract(c, evidence.Enrichment{}).Completeness()
+
 	commitStatus := "pending"
 	if opts.RequireEvidenceCommit || c.Evidence.EvidenceRequired {
 		evID, err := s.evidence.CommitMinimal(evidence.Minimal{
@@ -279,10 +285,44 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 	}
 
 	winner, stored := s.storeIfAbsent(key, c)
+	if stored {
+		// Capture the replay snapshot (§14.1) for decision-level replay.
+		s.putSnapshot(winner.DecisionID, replay.Inputs{
+			OriginalDecisionID: winner.DecisionID,
+			Context:            ctx,
+			Signals:            fuseInput,
+			Mode:               mode,
+			OriginalAction:     winner.Decision.Action,
+			OriginalReason:     winner.Decision.ReasonCode,
+		})
+	}
 	return EvaluateResponse{
 		Decision: winner, EvidenceCommitStatus: commitStatus,
 		IdempotentReplay: !stored, LatencyMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// ReplayDecision re-runs a stored decision's snapshot through the deterministic
+// core and returns the consistency verdict (Spec v1.5 §14).
+func (s *Service) ReplayDecision(decisionID string) (replay.Result, error) {
+	snap, ok := s.getSnapshot(decisionID)
+	if !ok {
+		return replay.Result{}, fmt.Errorf("service: no replay snapshot for decision %q", decisionID)
+	}
+	return replay.Run(snap, s.bundle, s.fusionCfg), nil
+}
+
+func (s *Service) putSnapshot(id string, in replay.Inputs) {
+	s.mu.Lock()
+	s.snapshots[id] = in
+	s.mu.Unlock()
+}
+
+func (s *Service) getSnapshot(id string) (replay.Inputs, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	in, ok := s.snapshots[id]
+	return in, ok
 }
 
 // verifyProvenance enforces INV-7: only registered (and in MODE-B, signed)

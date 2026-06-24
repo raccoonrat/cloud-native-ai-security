@@ -42,6 +42,7 @@ func main() {
 	})
 
 	log.Printf("control plane listening on %s (provenance MODE_A)", addr)
+	log.Printf("routes: POST /v1/decisions:evaluate, POST /v1/replay:decision, GET /healthz")
 	if err := http.ListenAndServe(addr, svc.Handler()); err != nil {
 		log.Fatal(err)
 	}

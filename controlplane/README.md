@@ -1,17 +1,19 @@
-# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–3)
+# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–4)
 
 Reference implementation of the Enterprise AI Runtime Security Control Plane,
 per spec `[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md`
-(§23 Sprint 1 + Sprint 2 + Sprint 3).
+(§23 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4).
 
 This module is a **compilable, testable end-to-end vertical slice**: the
 contracts, deterministic fusion, deterministic policy resolution, the
 `POST /v1/decisions:evaluate` runtime decision API (INV-7 provenance check,
-first-write-wins idempotency, signed Decision Contract), minimal synchronous
-evidence commit, a mock Enforcement Adapter, and the **Tool / MCP
+first-write-wins idempotency, signed Decision Contract), evidence commit +
+completeness scoring, a mock Enforcement Adapter, the **Tool / MCP
 pre-execution security slice** (metadata snapshots, drift detection, trust
-state, confirmation binding + TOCTOU re-validation). It has **zero external
-dependencies** (Go stdlib only).
+state, confirmation binding + TOCTOU re-validation), **decision-level Replay**
+(`POST /v1/replay:decision`), and an **Evaluation Harness** producing per-stage
+/ per-risk-family metric cards. It has **zero external dependencies** (Go
+stdlib only).
 
 ## Layout
 
@@ -47,16 +49,23 @@ controlplane/
 │   └── approval_test.go
 ├── decision/                      Decision Contract (INV-3, v1.6 §11)
 │   └── contract.go                build + hash + sign + validate + approval binding
-├── evidence/                      minimal synchronous evidence commit (v1.6 §13.3)
+├── evidence/                      evidence commit + completeness scoring (v1.6 §13)
+│   ├── evidence.go                minimal synchronous commit (§13.3)
+│   └── package.go                 full Package + §13.5 completeness + enrichment
+├── replay/                        decision-level Replay-lite (v1.6 §14)
+│   └── replay.go                  re-run fuse+policy, consistency verdict + diff
+├── eval/                          Evaluation Harness (v1.6 §17)
+│   └── eval.go                    Case/Report/Run + per-stage/per-family cards
 ├── enforcement/                   mock Enforcement Adapter (v1.5 §12)
 ├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
 ├── idutil/                        prefixed id generation
 ├── service/                       runtime decision MVP
-│   ├── service.go                 Evaluate(): provenance -> fuse -> resolve -> sign -> evidence
+│   ├── service.go                 Evaluate(): provenance -> fuse -> resolve -> sign -> evidence; ReplayDecision()
 │   ├── registry.go                Detector Registry (INV-7)
-│   ├── http.go                    POST /v1/decisions:evaluate
+│   ├── http.go                    POST /v1/decisions:evaluate, POST /v1/replay:decision
 │   ├── defaults.go                fully-wired default Service
-│   └── golden_test.go            3 golden scenarios end to end
+│   ├── golden_test.go            3 golden scenarios end to end
+│   └── replay_test.go            golden-replay reproduction + completeness
 └── cmd/controlplane/main.go       HTTP server
 ```
 
@@ -125,6 +134,23 @@ go test ./...
 - **`service.EvaluateToolAction`** + `ApproveToolAction`: the full
   require_confirmation → approve → allow lifecycle.
 
+### Sprint 4 — Evidence / Replay / Evaluation
+- **Full Evidence Package + completeness scoring** (`evidence.BuildFromContract`,
+  `Package.Completeness`, §13.5): stage-specific required-field tables; the
+  synchronous Decision Contract now carries `evidence.evidence_completeness`, and
+  asynchronous **enrichment** (`evidence.Enrichment`) completes the package
+  (content spans, enforcement result) post-decision (§13.4).
+- **Decision-level Replay-lite** (`replay.Run`, `service.ReplayDecision`,
+  `POST /v1/replay:decision`, §14): re-runs fusion + policy from the pinned
+  context/signal snapshot and returns a `match` / `partial` / `mismatch` verdict
+  with a diff. Replaying with the same pinned versions reproduces the original
+  action for every golden scenario (deterministic by §3/§4).
+- **Evaluation Harness** (`eval.Run` → `eval.Report`, §17): scores **control**
+  effectiveness — `action_correctness`, `reason_correctness`,
+  `evidence_completeness`, `replay_consistency`, false-positive / false-negative
+  rates, p95 latency — broken down **per stage** and **per risk family**, with a
+  per-case metric `Card` and a `Report.Render()` summary.
+
 ### Golden / tool scenario results
 | Scenario | Stage | Decision |
 | -------- | ----- | -------- |
@@ -143,8 +169,11 @@ go test ./...
 - Edge security: mTLS, workload identity, rate limiting, anti-replay (§5.1/§5.2)
   — belongs to the serving edge, intentionally out of the handler.
 - Async judge augmentation + `decision_revision` flow (§6.2 fields are present).
-- Replay-lite API, Evaluation Harness, Release Gate (Sprint 4–5).
-- Full Evidence Package enrichment + encryption/tenant isolation (Sprint 4).
+- Release Gate (`GateEvaluationRecord`) wiring for matrix/policy promotion (§22).
+- Evidence encryption + tenant isolation / durable evidence store (current store
+  is in-memory; completeness scoring + enrichment are implemented).
+- Replay snapshots persisted to a durable store (current snapshot map is
+  in-memory, keyed by `decision_id`).
 - HTTP route for `EvaluateToolAction` (currently the in-process API; the
   `/v1/decisions:evaluate` handler covers the non-tool path).
 - JSON Schema runtime validation wiring (schemas embedded; validator pending).
@@ -166,3 +195,6 @@ go test ./...
 | Approval invalidation (§15.4) | `approval.Validate` | `TestSchemaDriftInvalidatesApproval` |
 | Confirmation lifecycle | `service.EvaluateToolAction` | `TestTool_ConfirmationLifecycle` |
 | TOCTOU re-validation (P1-4) | `service.resolveApproval` | `TestTool_TOCTOURevalidation` |
+| Evidence completeness scoring (§13.5) | `evidence.Package.Completeness` | `TestCompleteness_*` |
+| Decision replay reproduction (§14) | `replay.Run` / `service.ReplayDecision` | `TestReplay_GoldenScenariosReproduce`, `TestReplay_*` |
+| Evaluation metric cards (§17) | `eval.Run` | `TestHarness_Report` |
