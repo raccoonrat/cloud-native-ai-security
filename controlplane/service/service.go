@@ -37,6 +37,10 @@ type EvaluateRequest struct {
 type Options struct {
 	RequireEvidenceCommit bool `json:"require_evidence_commit"`
 	TimeoutMs             int  `json:"timeout_ms"`
+	// PendingJudge declares that a judge (source_type=judge) signal is in-flight
+	// but not yet available within the decision budget. The sync path MUST NOT
+	// block (§6.1); the decision is computed without it and marked provisional.
+	PendingJudge bool `json:"pending_judge"`
 }
 
 // EvaluateResponse is the decision response (Spec v1.5 §16.1).
@@ -65,9 +69,11 @@ type Service struct {
 	fusionCfg fusion.Config
 	cfg       Config
 
-	mu        sync.Mutex
-	store     map[string]decision.Contract // idempotency: trace|request|stage -> decision
-	snapshots map[string]replay.Inputs     // decision_id -> replay snapshot (§14)
+	mu         sync.Mutex
+	store      map[string]decision.Contract // idempotency: trace|request|stage -> decision
+	snapshots  map[string]replay.Inputs     // decision_id -> replay snapshot (§14)
+	effective  map[string]decision.Contract // trace|stage -> latest non-superseded decision (§6.2)
+	prevBundle *policy.Bundle               // previous active bundle for blue/green rollback (§decision-9)
 }
 
 // New builds a Service with sensible MVP defaults for any nil dependency.
@@ -88,6 +94,7 @@ func New(m *matrix.Matrix, bundle policy.Bundle, reg DetectorRegistry, ev eviden
 		cfg:       cfg,
 		store:     map[string]decision.Contract{},
 		snapshots: map[string]replay.Inputs{},
+		effective: map[string]decision.Contract{},
 	}
 }
 
@@ -98,11 +105,16 @@ func (s *Service) WithTooling(reg tool.Registry, appr approval.Service) *Service
 	return s
 }
 
-// extras carries optional tool-confirmation binding inputs into decide.
+// extras carries optional tool-confirmation binding + async-revision inputs into decide.
 type extras struct {
 	approvalID   string
 	bindingHash  string
 	bindingField []string
+
+	// Async judge path (Spec v1.6 §6.2).
+	stability        string
+	decisionRevision int
+	supersedesID     string
 }
 
 // Evaluate runs the full decision chain for one request.
@@ -127,7 +139,23 @@ func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 	// INV-7 provenance verification (§1.2/§1.3).
 	kept, synthetic, dropped := s.verifyProvenance(ctx, req.Signals)
 	fuseInput := append(kept, synthetic...)
-	return s.decide(ctx, mode, req.Options, fuseInput, dropped, extras{}, start)
+
+	// §6.1: never block on a judge. If a judge is pending and no judge signal is
+	// present yet, compute now and mark the decision provisional (§6.2).
+	ex := extras{}
+	if req.Options.PendingJudge && !hasJudgeSignal(fuseInput) {
+		ex.stability = decision.StabilityProvisional
+	}
+	return s.decide(ctx, mode, req.Options, fuseInput, dropped, ex, start)
+}
+
+func hasJudgeSignal(sigs []model.Signal) bool {
+	for _, s := range sigs {
+		if s.Source.SourceType == model.SourceJudge {
+			return true
+		}
+	}
+	return false
 }
 
 // EvaluateToolAction is the tool_pre_execution path (Spec v1.5 §15, Sprint 3).
@@ -260,6 +288,9 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 		ApprovalID:          ex.approvalID,
 		ApprovalBindingHash: ex.bindingHash,
 		ApprovalFields:      ex.bindingField,
+		Stability:           ex.stability,
+		DecisionRevision:    ex.decisionRevision,
+		SupersedesID:        ex.supersedesID,
 	}, s.signer)
 
 	if err := decision.Validate(c, s.matrix); err != nil {
@@ -296,6 +327,8 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 			OriginalAction:     winner.Decision.Action,
 			OriginalReason:     winner.Decision.ReasonCode,
 		})
+		// Record as the latest non-superseded decision for (trace, stage) (§6.2).
+		s.putEffective(traceStageKey(ctx.TraceID, ctx.Stage), winner)
 	}
 	return EvaluateResponse{
 		Decision: winner, EvidenceCommitStatus: commitStatus,
@@ -363,6 +396,61 @@ func (s *Service) EvaluateReleaseGate(req ReleaseGateRequest) gate.GateEvaluatio
 	})
 }
 
+// ActivateBundle performs a gate-guarded blue/green activation of a candidate
+// policy bundle (Spec v1.6 decision #9: immutable bundle + version-pointer switch;
+// INV-6: release-gated). Activation is permitted only if the GateEvaluationRecord
+// allows it for the target environment; otherwise the active bundle is unchanged.
+// The previous bundle is retained for RollbackBundle.
+func (s *Service) ActivateBundle(candidate policy.Bundle, rec gate.GateEvaluationRecord, env model.Environment) error {
+	if !activationPermitted(rec.Decision, env) {
+		return fmt.Errorf("service: bundle activation denied by release gate: decision=%s env=%s", rec.Decision, env)
+	}
+	s.mu.Lock()
+	prev := s.bundle
+	s.prevBundle = &prev
+	s.bundle = candidate
+	s.mu.Unlock()
+	return nil
+}
+
+// RollbackBundle restores the previously active bundle (blue/green pointer switch
+// back). It is the rollback_required remediation path (§18.2).
+func (s *Service) RollbackBundle() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.prevBundle == nil {
+		return fmt.Errorf("service: no previous bundle to roll back to")
+	}
+	rolled := *s.prevBundle
+	s.prevBundle = nil
+	s.bundle = rolled
+	return nil
+}
+
+// ActiveBundleVersion returns the currently active policy bundle version.
+func (s *Service) ActiveBundleVersion() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bundle.Version
+}
+
+// activationPermitted maps a gate decision + target environment to whether the
+// candidate may be promoted onto the enforcing path (§18.2).
+func activationPermitted(d gate.Decision, env model.Environment) bool {
+	switch d {
+	case gate.DecisionPass, gate.DecisionPassWithWarning:
+		return true
+	case gate.DecisionCanaryOnly:
+		return env == model.EnvCanary || env == model.EnvShadow
+	case gate.DecisionShadowOnly:
+		// shadow computes hypothetical enforcement only; it never promotes the
+		// enforcing bundle in canary/prod.
+		return env == model.EnvShadow
+	default: // block, rollback_required
+		return false
+	}
+}
+
 func isActiveControl(a model.Action) bool {
 	switch a {
 	case model.ActionAllow, model.ActionAuditOnly, model.ActionAnnotateRisk:
@@ -370,6 +458,91 @@ func isActiveControl(a model.Action) bool {
 	default:
 		return true
 	}
+}
+
+// AugmentJudge applies a late-arriving async judge signal to the latest decision
+// for (trace_id, stage) and, per §6.2, emits a revised decision
+// (decision_revision += 1, supersedes_decision_id = original). Enforcement should
+// always act on the latest non-superseded decision (see LatestDecision). The
+// returned bool reports whether the action changed (e.g. tightened) vs the prior.
+func (s *Service) AugmentJudge(traceID string, stage model.Stage, judge []model.Signal) (decision.Contract, bool, error) {
+	if err := stage.Validate(); err != nil {
+		return decision.Contract{}, false, err
+	}
+	key := traceStageKey(traceID, stage)
+	prev, ok := s.getEffective(key)
+	if !ok {
+		return decision.Contract{}, false, fmt.Errorf("service: no decision to augment for %s/%s", traceID, stage)
+	}
+	snap, ok := s.getSnapshot(prev.DecisionID)
+	if !ok {
+		return decision.Contract{}, false, fmt.Errorf("service: no snapshot for decision %s", prev.DecisionID)
+	}
+
+	ctx := snap.Context
+	// Judge signals still pass INV-7 provenance before fusion.
+	kept, synthetic, dropped := s.verifyProvenance(ctx, judge)
+	fuseInput := append([]model.Signal{}, snap.Signals...)
+	fuseInput = append(fuseInput, kept...)
+	fuseInput = append(fuseInput, synthetic...)
+
+	fr := fusion.Fuse(fuseInput, ctx, s.fusionCfg)
+	fr.DroppedSignals = append(dropped, fr.DroppedSignals...)
+	matched := s.bundle.Match(ctx, fr)
+	res := policy.Resolve(matched, snap.Mode, fr)
+
+	revised := decision.Build(decision.Inputs{
+		Context:        ctx,
+		Signals:        fuseInput,
+		FusedRisk:      fr,
+		Resolution:     res,
+		BundleVersion:  s.bundle.Version,
+		ThresholdVer:   s.cfg.ThresholdConfigVersion,
+		MatrixVersion:  s.matrix.MatrixVersion,
+		ProvenanceMode: s.cfg.ProvenanceMode,
+		Mode:           snap.Mode,
+		Stability:      decision.StabilityFinal,
+		DecisionRevision: prev.Decision.DecisionRevision + 1,
+		SupersedesID:     prev.DecisionID,
+	}, s.signer)
+	if err := decision.Validate(revised, s.matrix); err != nil {
+		return decision.Contract{}, false, fmt.Errorf("service: invalid revised decision: %w", err)
+	}
+	revised.Evidence.EvidenceCompleteness = evidence.BuildFromContract(revised, evidence.Enrichment{}).Completeness()
+
+	// The revised decision becomes the latest non-superseded decision and is
+	// itself replayable / re-augmentable.
+	s.putEffective(key, revised)
+	s.putSnapshot(revised.DecisionID, replay.Inputs{
+		OriginalDecisionID: revised.DecisionID, Context: ctx, Signals: fuseInput, Mode: snap.Mode,
+		OriginalAction: revised.Decision.Action, OriginalReason: revised.Decision.ReasonCode,
+	})
+
+	changed := revised.Decision.Action != prev.Decision.Action
+	return revised, changed, nil
+}
+
+// LatestDecision returns the latest non-superseded decision for (trace_id, stage).
+// Enforcement MUST act on this, not on a stale provisional decision (§6.2).
+func (s *Service) LatestDecision(traceID string, stage model.Stage) (decision.Contract, bool) {
+	return s.getEffective(traceStageKey(traceID, stage))
+}
+
+func traceStageKey(traceID string, stage model.Stage) string {
+	return traceID + "|" + string(stage)
+}
+
+func (s *Service) putEffective(key string, c decision.Contract) {
+	s.mu.Lock()
+	s.effective[key] = c
+	s.mu.Unlock()
+}
+
+func (s *Service) getEffective(key string) (decision.Contract, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.effective[key]
+	return c, ok
 }
 
 func (s *Service) putSnapshot(id string, in replay.Inputs) {

@@ -144,6 +144,12 @@ type Integrity struct {
 	Signature    string `json:"signature,omitempty"`
 }
 
+// Decision stability values (Spec v1.6 §6.2).
+const (
+	StabilityFinal       = "final"
+	StabilityProvisional = "provisional_pending_async"
+)
+
 // Inputs bundles everything needed to build a Decision Contract.
 type Inputs struct {
 	Context        model.Context
@@ -160,6 +166,11 @@ type Inputs struct {
 	ApprovalID          string
 	ApprovalBindingHash string
 	ApprovalFields      []string
+
+	// Decision stability & async revision (Spec v1.6 §6.2). Defaults: final / 0 / "".
+	Stability        string
+	DecisionRevision int
+	SupersedesID     string
 }
 
 // Build assembles, hashes, and signs a Decision Contract.
@@ -200,8 +211,9 @@ func Build(in Inputs, signer sign.Signer) Contract {
 			Confidence:          res.Confidence,
 			DecisionMode:        string(in.Mode),
 			EnforcementRequired: res.Action != model.ActionAllow && res.Action != model.ActionAuditOnly,
-			Stability:           "final",
-			DecisionRevision:    0,
+			Stability:           stabilityOrDefault(in.Stability),
+			DecisionRevision:    in.DecisionRevision,
+			SupersedesID:        in.SupersedesID,
 		},
 		Constraints: ConstraintsBlock{
 			RedactionProfile:     res.Constraints.RedactionProfile,
@@ -307,6 +319,13 @@ func buildApprovalBinding(in Inputs, res policy.Resolution) ApprovalBinding {
 		ab.Fields = in.ApprovalFields
 	}
 	return ab
+}
+
+func stabilityOrDefault(s string) string {
+	if s == "" {
+		return StabilityFinal
+	}
+	return s
 }
 
 func objectType(s model.Stage) string {

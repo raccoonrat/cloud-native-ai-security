@@ -3,6 +3,9 @@ package service
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/decision"
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/model"
 )
 
 // Handler returns an http.Handler exposing the runtime decision API.
@@ -14,6 +17,7 @@ import (
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/decisions:evaluate", s.handleEvaluate)
+	mux.HandleFunc("/v1/decisions:augment", s.handleAugment)
 	mux.HandleFunc("/v1/replay:decision", s.handleReplay)
 	mux.HandleFunc("/v1/release-gates:evaluate", s.handleReleaseGate)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -43,6 +47,33 @@ func (s *Service) handleReplay(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (s *Service) handleAugment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "use POST")
+		return
+	}
+	var req struct {
+		TraceID string         `json:"trace_id"`
+		Stage   model.Stage    `json:"stage"`
+		Signals []model.Signal `json:"signals"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	revised, changed, err := s.AugmentJudge(req.TraceID, req.Stage, req.Signals)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "augment_failed", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Decision    decision.Contract `json:"decision"`
+		ActionChanged bool            `json:"action_changed"`
+	}{Decision: revised, ActionChanged: changed})
 }
 
 func (s *Service) handleReleaseGate(w http.ResponseWriter, r *http.Request) {

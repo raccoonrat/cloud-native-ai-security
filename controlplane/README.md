@@ -1,8 +1,8 @@
-# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–5)
+# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–6)
 
 Reference implementation of the Enterprise AI Runtime Security Control Plane,
 per spec `[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md`
-(§23 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5).
+(§23 Sprint 1–5 + Sprint 6: async judge path §6 and gate-guarded bundle activation).
 
 This module is a **compilable, testable end-to-end vertical slice**: the
 contracts, deterministic fusion, deterministic policy resolution, the
@@ -65,13 +65,15 @@ controlplane/
 ├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
 ├── idutil/                        prefixed id generation
 ├── service/                       runtime decision MVP
-│   ├── service.go                 Evaluate(); ReplayDecision(); EvaluateReleaseGate()
+│   ├── service.go                 Evaluate(); AugmentJudge(); ReplayDecision(); EvaluateReleaseGate(); ActivateBundle()
 │   ├── registry.go                Detector Registry (INV-7)
-│   ├── http.go                    POST /v1/decisions:evaluate, /v1/replay:decision, /v1/release-gates:evaluate
+│   ├── http.go                    POST /v1/decisions:evaluate, :augment, /v1/replay:decision, /v1/release-gates:evaluate
 │   ├── defaults.go                fully-wired default Service
 │   ├── golden_test.go            3 golden scenarios end to end
 │   ├── replay_test.go            golden-replay reproduction + completeness
-│   └── gate_test.go              release gate blocks breaking policy update
+│   ├── gate_test.go              release gate blocks breaking policy update
+│   ├── judge_test.go             provisional -> revised async judge flow (§6.2)
+│   └── activation_test.go        gate-guarded blue/green bundle activation
 └── cmd/controlplane/main.go       HTTP server
 ```
 
@@ -174,6 +176,24 @@ go test ./...
   severe behavior drift) → `shadow_only` (critical diff risk) → `canary_only`
   (high diff risk / elevated drift) → `pass_with_warning` → `pass`.
 
+### Sprint 6 — Async Judge Path + Gate-Guarded Activation
+- **Synchronous path never blocks on a judge** (§6.1): with `options.pending_judge`
+  set and no judge (`source_type=judge`) signal present, the decision is computed
+  immediately and marked `stability = provisional_pending_async`.
+- **Async judge augmentation + `decision_revision`** (`service.AugmentJudge`,
+  `POST /v1/decisions:augment`, §6.2): a late judge signal (re-checked through
+  INV-7 provenance) re-runs the deterministic core over the pinned snapshot and
+  emits a **revised decision** (`decision_revision += 1`,
+  `supersedes_decision_id` = original, `stability = final`).
+  `service.LatestDecision(trace, stage)` returns the latest non-superseded
+  decision — enforcement MUST act on it, never on a stale provisional one.
+- **Gate-guarded blue/green bundle activation** (`service.ActivateBundle` /
+  `RollbackBundle`, decision #9): bundles are immutable; activation is a
+  version-pointer switch permitted only when the `GateEvaluationRecord` allows it
+  for the target environment (`pass`/`pass_with_warning` anywhere, `canary_only`
+  in canary/shadow, `shadow_only`/`block`/`rollback_required` never promote to
+  prod). The previous bundle is retained for rollback.
+
 ### Golden / tool scenario results
 | Scenario | Stage | Decision |
 | -------- | ----- | -------- |
@@ -191,14 +211,10 @@ go test ./...
 
 - Edge security: mTLS, workload identity, rate limiting, anti-replay (§5.1/§5.2)
   — belongs to the serving edge, intentionally out of the handler.
-- Async judge augmentation + `decision_revision` flow (§6.2 fields are present).
-- Persisting the `GateEvaluationRecord` + enforcing it as a promotion guard
-  (bundle activation hook); the gate decision is computed but not yet wired to
-  block live bundle swaps.
 - Evidence encryption + tenant isolation / durable evidence store (current store
   is in-memory; completeness scoring + enrichment are implemented).
-- Replay / gate corpora persisted to a durable store (current snapshot map is
-  in-memory, keyed by `decision_id`).
+- Durable persistence for decisions / replay+gate corpora / effective-decision
+  and bundle-history maps (all currently in-memory).
 - HTTP route for `EvaluateToolAction` (currently the in-process API; the
   `/v1/decisions:evaluate` handler covers the non-tool path).
 - JSON Schema runtime validation wiring (schemas embedded; validator pending).
@@ -226,3 +242,5 @@ go test ./...
 | Policy diff risk classification (§16.5/§18) | `policy.Diff` | `TestDiff_*` |
 | Gate blocks breaking policy update (INV-6) | `gate.Decide` / `service.EvaluateReleaseGate` | `TestGate_BlockOnRegression`, `TestReleaseGate_BlocksBreakingPolicyUpdate` |
 | Canary-only / rollback-required outcomes (§18.2) | `gate.Decide` | `TestGate_CanaryOnlyOnDrift`, `TestGate_RollbackRequiredOnSevereRegression` |
+| Sync path never blocks on judge; provisional→revised (§6) | `service.AugmentJudge` | `TestJudge_ProvisionalThenRevised`, `TestJudge_PresentSignalIsFinal` |
+| Gate-guarded blue/green activation + rollback (decision #9) | `service.ActivateBundle` / `RollbackBundle` | `TestActivation_*` |
