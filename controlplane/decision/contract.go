@@ -112,6 +112,7 @@ type ConstraintsBlock struct {
 // ApprovalBinding records confirmation binding requirements (Spec v1.5 §15.3).
 type ApprovalBinding struct {
 	Required    bool     `json:"required"`
+	ApprovalID  string   `json:"approval_id,omitempty"`
 	BindingHash string   `json:"binding_hash,omitempty"`
 	Fields      []string `json:"binding_fields,omitempty"`
 }
@@ -153,6 +154,11 @@ type Inputs struct {
 	MatrixVersion  string
 	ProvenanceMode model.ProvenanceMode
 	Mode           model.Environment
+
+	// Tool confirmation binding (Spec v1.5 §15.3), set for tool_pre_execution.
+	ApprovalID          string
+	ApprovalBindingHash string
+	ApprovalFields      []string
 }
 
 // Build assembles, hashes, and signs a Decision Contract.
@@ -205,7 +211,7 @@ func Build(in Inputs, signer sign.Signer) Contract {
 			AuditRequired:        res.Constraints.AuditRequired,
 			UserMessageTemplate:  res.Constraints.UserMessageTemplate,
 		},
-		ApprovalBinding: ApprovalBinding{Required: res.Action == model.ActionRequireConfirmation || res.Constraints.ConfirmationRequired},
+		ApprovalBinding: buildApprovalBinding(in, res),
 		Evidence:        EvidenceBlock{EvidenceRequired: res.Constraints.EvidenceRequired},
 		ReplayBinding: ReplayBinding{
 			ContextSnapshotRef:     ctx.ContextID,
@@ -290,6 +296,16 @@ func hashCore(c Contract) string {
 	b, _ := json.Marshal(core)
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func buildApprovalBinding(in Inputs, res policy.Resolution) ApprovalBinding {
+	required := res.Action == model.ActionRequireConfirmation || res.Constraints.ConfirmationRequired
+	ab := ApprovalBinding{Required: required, ApprovalID: in.ApprovalID}
+	if required {
+		ab.BindingHash = in.ApprovalBindingHash
+		ab.Fields = in.ApprovalFields
+	}
+	return ab
 }
 
 func objectType(s model.Stage) string {

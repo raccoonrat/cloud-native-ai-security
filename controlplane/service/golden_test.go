@@ -11,7 +11,7 @@ import (
 )
 
 func newTestService() (*Service, *MemRegistry) {
-	svc, reg := NewDefault([]byte("test-key"))
+	svc, reg, _ := NewDefault([]byte("test-key"))
 	reg.Register(DetectorEntry{SourceID: "det-enterprise-data-leakage", Versions: map[string]bool{"1": true}})
 	reg.Register(DetectorEntry{SourceID: "det-prompt-injection", Versions: map[string]bool{"1": true}})
 	reg.Register(DetectorEntry{SourceID: "det-source-trust", Versions: map[string]bool{"1": true}})

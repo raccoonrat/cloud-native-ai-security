@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/approval"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/decision"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/evidence"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/fusion"
@@ -17,14 +18,17 @@ import (
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/model"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/policy"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/sign"
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/tool"
 )
 
 // EvaluateRequest is the POST /v1/decisions:evaluate body (Spec v1.5 §16.1).
 type EvaluateRequest struct {
-	Context model.Context  `json:"context"`
-	Signals []model.Signal `json:"signals"`
-	Mode    model.Environment `json:"mode"`
-	Options Options        `json:"options"`
+	Context model.Context       `json:"context"`
+	Signals []model.Signal      `json:"signals"`
+	Mode    model.Environment   `json:"mode"`
+	Options Options             `json:"options"`
+	// ToolAction is set for stage=tool_pre_execution (Spec v1.5 §15.1).
+	ToolAction *tool.ActionContext `json:"tool_action,omitempty"`
 }
 
 // Options controls evaluation behavior.
@@ -52,6 +56,8 @@ type Service struct {
 	matrix    *matrix.Matrix
 	bundle    policy.Bundle
 	registry  DetectorRegistry
+	toolReg   tool.Registry
+	approvals approval.Service
 	evidence  evidence.Store
 	signer    sign.Signer
 	fusionCfg fusion.Config
@@ -81,6 +87,20 @@ func New(m *matrix.Matrix, bundle policy.Bundle, reg DetectorRegistry, ev eviden
 	}
 }
 
+// WithTooling wires the Tool Registry and Approval Binding Service (Sprint 3).
+func (s *Service) WithTooling(reg tool.Registry, appr approval.Service) *Service {
+	s.toolReg = reg
+	s.approvals = appr
+	return s
+}
+
+// extras carries optional tool-confirmation binding inputs into decide.
+type extras struct {
+	approvalID   string
+	bindingHash  string
+	bindingField []string
+}
+
 // Evaluate runs the full decision chain for one request.
 func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 	start := time.Now()
@@ -100,7 +120,115 @@ func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 		mode = model.EnvShadow
 	}
 
-	// §5.3 idempotency: first-write-wins. Replay returns the stored decision.
+	// INV-7 provenance verification (§1.2/§1.3).
+	kept, synthetic, dropped := s.verifyProvenance(ctx, req.Signals)
+	fuseInput := append(kept, synthetic...)
+	return s.decide(ctx, mode, req.Options, fuseInput, dropped, extras{}, start)
+}
+
+// EvaluateToolAction is the tool_pre_execution path (Spec v1.5 §15, Sprint 3).
+// It normalizes the ToolActionContext, runs drift detection and trust
+// resolution, re-validates any prior approval (TOCTOU), and then runs the same
+// deterministic decision core.
+func (s *Service) EvaluateToolAction(req EvaluateRequest) (EvaluateResponse, error) {
+	start := time.Now()
+	ctx := req.Context
+	if req.ToolAction == nil {
+		return EvaluateResponse{}, fmt.Errorf("service: tool_action is required")
+	}
+	if ctx.Stage != model.StageToolPreExecution {
+		return EvaluateResponse{}, fmt.Errorf("service: tool_action requires stage=tool_pre_execution")
+	}
+	if s.toolReg == nil || s.approvals == nil {
+		return EvaluateResponse{}, fmt.Errorf("service: tooling not configured (call WithTooling)")
+	}
+	if err := ctx.Stage.Validate(); err != nil {
+		return EvaluateResponse{}, err
+	}
+	if ctx.TraceID == "" || ctx.RequestID == "" {
+		return EvaluateResponse{}, fmt.Errorf("service: trace_id and request_id are required")
+	}
+	mode := req.Mode
+	if mode == "" {
+		mode = ctx.Application.Environment
+	}
+	if mode == "" {
+		mode = model.EnvShadow
+	}
+	ac := *req.ToolAction
+
+	// Normalize the tool action -> enriched tool context + tool signals (§15).
+	toolCtx, toolSignals, _ := tool.Adapt(ctx, ac, s.toolReg)
+	if ctx.Data.Sensitivity == "" {
+		ctx.Data.Sensitivity = ac.DataSensitivity
+	}
+	if ctx.Data.DataAssetType == "" {
+		ctx.Data.DataAssetType = ac.DataAssetType
+	}
+	if ctx.Destination.Boundary == "" {
+		ctx.Destination.Boundary = ac.DestinationBoundary
+	}
+
+	// Re-validate any prior approval against the CURRENT action (§15.4, TOCTOU).
+	approvalValid, approvalSignals := s.resolveApproval(ctx, ac, &toolCtx)
+	toolCtx.ApprovalValid = approvalValid
+	ctx.Tool = toolCtx
+
+	// External detector signals still pass provenance; tool/approval signals are
+	// control-plane-internal and bypass the registry check.
+	kept, synthetic, dropped := s.verifyProvenance(ctx, req.Signals)
+	fuseInput := append(kept, synthetic...)
+	fuseInput = append(fuseInput, toolSignals...)
+	fuseInput = append(fuseInput, approvalSignals...)
+
+	ex := extras{
+		approvalID:   ac.ApprovalID,
+		bindingHash:  tool.ActionFingerprint(ac),
+		bindingField: tool.BindingFieldNames,
+	}
+	return s.decide(ctx, mode, req.Options, fuseInput, dropped, ex, start)
+}
+
+// ApproveToolAction simulates a human confirmation binding a concrete action
+// (Spec v1.5 §15.3). It returns the approval id to be replayed by the agent.
+func (s *Service) ApproveToolAction(ac tool.ActionContext, approverID string, ttl time.Duration) (approval.Binding, error) {
+	if s.approvals == nil {
+		return approval.Binding{}, fmt.Errorf("service: tooling not configured")
+	}
+	return s.approvals.Approve(ac, approverID, ttl), nil
+}
+
+// resolveApproval re-validates a prior approval. On drift it surfaces the
+// corresponding tool drift signal and marks HasPriorApproval so FR-003 flags
+// approval_invalidated during fusion.
+func (s *Service) resolveApproval(ctx model.Context, ac tool.ActionContext, toolCtx *model.ToolCtx) (bool, []model.Signal) {
+	if ac.ApprovalID == "" {
+		return false, nil
+	}
+	b, ok := s.approvals.Get(ac.ApprovalID)
+	if !ok {
+		return false, nil
+	}
+	res := s.approvals.Validate(b, ac, time.Now().UTC())
+	if res.Valid {
+		return true, nil
+	}
+	toolCtx.HasPriorApproval = true
+	var sigs []model.Signal
+	switch res.Reason {
+	case "schema_hash_changed":
+		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_schema_drift", model.SourceSchema, model.SeverityHigh))
+	case "manifest_hash_changed":
+		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_manifest_drift", model.SourceSchema, model.SeverityHigh))
+	case "parameters_hash_changed", "target_resource_changed", "destination_boundary_changed":
+		sigs = append(sigs, s.systemSignalTyped(ctx, "approval_stale", model.SourceSystem, model.SeverityHigh))
+	}
+	return false, sigs
+}
+
+// decide is the shared deterministic core: fusion -> policy -> signed decision
+// -> minimal evidence commit, behind first-write-wins idempotency (§5.3).
+func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options, fuseInput []model.Signal, dropped []model.DroppedSignal, ex extras, start time.Time) (EvaluateResponse, error) {
 	key := ctx.TraceID + "|" + ctx.RequestID + "|" + string(ctx.Stage)
 	if existing, ok := s.get(key); ok {
 		return EvaluateResponse{
@@ -109,38 +237,33 @@ func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 		}, nil
 	}
 
-	// INV-7 provenance verification (§1.2/§1.3).
-	kept, synthetic, dropped := s.verifyProvenance(ctx, req.Signals)
-	fuseInput := append(kept, synthetic...)
-
-	// Deterministic fusion (§3).
 	fr := fusion.Fuse(fuseInput, ctx, s.fusionCfg)
 	fr.DroppedSignals = append(dropped, fr.DroppedSignals...)
 
-	// Policy match + deterministic resolution (§4).
 	matched := s.bundle.Match(ctx, fr)
 	res := policy.Resolve(matched, mode, fr)
 
-	// Build + sign the Decision Contract (§5.4).
 	c := decision.Build(decision.Inputs{
-		Context:        ctx,
-		Signals:        kept,
-		FusedRisk:      fr,
-		Resolution:     res,
-		BundleVersion:  s.bundle.Version,
-		ThresholdVer:   s.cfg.ThresholdConfigVersion,
-		MatrixVersion:  s.matrix.MatrixVersion,
-		ProvenanceMode: s.cfg.ProvenanceMode,
-		Mode:           mode,
+		Context:             ctx,
+		Signals:             fuseInput,
+		FusedRisk:           fr,
+		Resolution:          res,
+		BundleVersion:       s.bundle.Version,
+		ThresholdVer:        s.cfg.ThresholdConfigVersion,
+		MatrixVersion:       s.matrix.MatrixVersion,
+		ProvenanceMode:      s.cfg.ProvenanceMode,
+		Mode:                mode,
+		ApprovalID:          ex.approvalID,
+		ApprovalBindingHash: ex.bindingHash,
+		ApprovalFields:      ex.bindingField,
 	}, s.signer)
 
 	if err := decision.Validate(c, s.matrix); err != nil {
 		return EvaluateResponse{}, fmt.Errorf("service: invalid decision: %w", err)
 	}
 
-	// Minimal synchronous evidence commit (§13.3, INV-4).
 	commitStatus := "pending"
-	if req.Options.RequireEvidenceCommit || c.Evidence.EvidenceRequired {
+	if opts.RequireEvidenceCommit || c.Evidence.EvidenceRequired {
 		evID, err := s.evidence.CommitMinimal(evidence.Minimal{
 			TraceID: c.TraceID, DecisionID: c.DecisionID, ContextRef: c.ContextID,
 			SignalRefs: c.ReplayBinding.SignalSnapshotRefs, PolicyRef: c.ReplayBinding.PolicyBundleVersion,
@@ -155,7 +278,6 @@ func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 		}
 	}
 
-	// Persist for idempotency (first-write-wins under lock).
 	winner, stored := s.storeIfAbsent(key, c)
 	return EvaluateResponse{
 		Decision: winner, EvidenceCommitStatus: commitStatus,
@@ -192,6 +314,10 @@ func (s *Service) verifyProvenance(ctx model.Context, sigs []model.Signal) (kept
 }
 
 func (s *Service) systemSignal(ctx model.Context, typ string, sev model.Severity) model.Signal {
+	return s.systemSignalTyped(ctx, typ, model.SourceSystem, sev)
+}
+
+func (s *Service) systemSignalTyped(ctx model.Context, typ string, src model.SourceType, sev model.Severity) model.Signal {
 	return model.Signal{
 		SchemaVersion: "1.6",
 		SignalID:      idutil.New("sig-sys"),
@@ -202,7 +328,7 @@ func (s *Service) systemSignal(ctx model.Context, typ string, sev model.Severity
 		RiskFamily:    model.RiskSEC,
 		Severity:      sev,
 		Confidence:    1.0,
-		Source:        model.SignalSource{SourceID: "control-plane", SourceType: model.SourceSystem, SourceVersion: "1.6"},
+		Source:        model.SignalSource{SourceID: "control-plane", SourceType: src, SourceVersion: "1.6"},
 	}
 }
 

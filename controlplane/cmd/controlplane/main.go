@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/model"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/service"
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/tool"
 )
 
 func main() {
@@ -22,7 +24,7 @@ func main() {
 		key = []byte("dev-insecure-hmac-key-change-me")
 	}
 
-	svc, reg := service.NewDefault(key)
+	svc, reg, toolReg := service.NewDefault(key)
 	// Register the MVP P0 detectors (INV-7). In production this comes from the
 	// Detector Registry service.
 	for _, id := range []string{
@@ -31,6 +33,13 @@ func main() {
 	} {
 		reg.Register(service.DetectorEntry{SourceID: id, Versions: map[string]bool{"1": true}})
 	}
+	// Register an example MVP tool snapshot (platform MCP registry is authoritative).
+	toolReg.Register(tool.MetadataSnapshot{
+		ToolID: "send_email", ServerID: "mcp-email-server-prod", ToolVersion: "1.2.0",
+		SchemaHash: "sha256:schema-v1", ManifestHash: "sha256:manifest-v1",
+		PermissionClass: model.PermExternalSend, TrustState: model.TrustApproved,
+		Owner: "platform-mcp",
+	})
 
 	log.Printf("control plane listening on %s (provenance MODE_A)", addr)
 	if err := http.ListenAndServe(addr, svc.Handler()); err != nil {

@@ -1,14 +1,16 @@
-# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–2)
+# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–3)
 
 Reference implementation of the Enterprise AI Runtime Security Control Plane,
 per spec `[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md`
-(§23 Sprint 1 + Sprint 2).
+(§23 Sprint 1 + Sprint 2 + Sprint 3).
 
 This module is a **compilable, testable end-to-end vertical slice**: the
 contracts, deterministic fusion, deterministic policy resolution, the
 `POST /v1/decisions:evaluate` runtime decision API (INV-7 provenance check,
 first-write-wins idempotency, signed Decision Contract), minimal synchronous
-evidence commit, and a mock Enforcement Adapter. It has **zero external
+evidence commit, a mock Enforcement Adapter, and the **Tool / MCP
+pre-execution security slice** (metadata snapshots, drift detection, trust
+state, confirmation binding + TOCTOU re-validation). It has **zero external
 dependencies** (Go stdlib only).
 
 ## Layout
@@ -37,8 +39,14 @@ controlplane/
 │   ├── evaluate.go                policy evaluator v0 (scope + condition match)
 │   ├── bundle_default.go          MVP bundle for the 3 golden scenarios
 │   └── resolve_test.go
+├── tool/                          Tool/MCP pre-execution security (v1.5 §15, INV-5)
+│   ├── tool.go                    ActionContext, snapshot, drift, trust, fingerprint
+│   └── tool_test.go
+├── approval/                      Approval Binding Service (v1.5 §15.3/§15.4)
+│   ├── approval.go                bind + TOCTOU re-validation (§15.4 rules)
+│   └── approval_test.go
 ├── decision/                      Decision Contract (INV-3, v1.6 §11)
-│   └── contract.go                build + hash + sign + validate
+│   └── contract.go                build + hash + sign + validate + approval binding
 ├── evidence/                      minimal synchronous evidence commit (v1.6 §13.3)
 ├── enforcement/                   mock Enforcement Adapter (v1.5 §12)
 ├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
@@ -105,13 +113,30 @@ go test ./...
   (INV-3 extended), validates against the matrix, executes the action; gates
   (`require_confirmation`/`step_up_auth`/`require_review`) return `skipped`.
 
-### Golden scenario results (`service/golden_test.go`)
+### Sprint 3 — Tool Pre-Execution Slice
+- **ToolActionContext + Metadata Snapshot + Registry** (`tool`): the platform MCP
+  registry is authoritative; the control plane snapshots it (INV-5).
+- **Drift detection + trust state** (`tool.DetectDrift` / `tool.ResolveTrust`):
+  schema/manifest drift, pinned-exact-match, revoked, unknown (§15.5).
+- **Approval Binding Service** (`approval`): binds a concrete action via an action
+  fingerprint, and **re-validates at execution time** against the §15.4 rules
+  (schema/manifest/parameter/target/destination drift, expiry) — closing the
+  TOCTOU window between approval and execution (review P1-4).
+- **`service.EvaluateToolAction`** + `ApproveToolAction`: the full
+  require_confirmation → approve → allow lifecycle.
+
+### Golden / tool scenario results
 | Scenario | Stage | Decision |
 | -------- | ----- | -------- |
 | 1 Enterprise data leakage | output | `redact` |
 | 2 Prompt injection retrieval | retrieval | `restrict_scope` |
-| 3 Tool pre-execution | tool_pre_execution | `require_confirmation` (tool not executed) |
-| 3b Revoked tool | tool_pre_execution | `deny` |
+| 3 Tool pre-execution (no approval) | tool_pre_execution | `require_confirmation` (tool not executed) |
+| 3 + valid approval | tool_pre_execution | `allow` |
+| 3 + schema drift after approval | tool_pre_execution | `require_confirmation` (approval invalidated) |
+| 3 + tampered target (TOCTOU) | tool_pre_execution | not `allow` |
+| Revoked tool | tool_pre_execution | `deny` |
+| Unknown elevated tool | tool_pre_execution | `deny` |
+| Unknown read tool | tool_pre_execution | `require_review` |
 
 ## Not yet implemented (later sprints)
 
@@ -120,6 +145,8 @@ go test ./...
 - Async judge augmentation + `decision_revision` flow (§6.2 fields are present).
 - Replay-lite API, Evaluation Harness, Release Gate (Sprint 4–5).
 - Full Evidence Package enrichment + encryption/tenant isolation (Sprint 4).
+- HTTP route for `EvaluateToolAction` (currently the in-process API; the
+  `/v1/decisions:evaluate` handler covers the non-tool path).
 - JSON Schema runtime validation wiring (schemas embedded; validator pending).
 
 ## Design guarantees
@@ -135,3 +162,7 @@ go test ./...
 | Signal provenance (INV-7) | `service.verifyProvenance` | `TestProvenanceDropsUnregisteredSource` |
 | Decision signing + verify | `decision.Build` / `enforcement` | golden tests `assertReplayBindingComplete` |
 | End-to-end golden scenarios | `service.Evaluate` | `TestGolden1/2/3/3b` |
+| Tool drift / trust state | `tool.DetectDrift` / `ResolveTrust` | `TestDetectDriftAndTrust` |
+| Approval invalidation (§15.4) | `approval.Validate` | `TestSchemaDriftInvalidatesApproval` |
+| Confirmation lifecycle | `service.EvaluateToolAction` | `TestTool_ConfirmationLifecycle` |
+| TOCTOU re-validation (P1-4) | `service.resolveApproval` | `TestTool_TOCTOURevalidation` |

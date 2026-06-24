@@ -66,6 +66,7 @@ type ToolCtx struct {
 	PermissionClass PermissionClass `json:"permission_class"`
 	TrustState      TrustState      `json:"trust_state"`
 	HasPriorApproval bool           `json:"has_prior_approval"`
+	ApprovalValid    bool           `json:"approval_valid"`
 }
 
 // Runtime carries the version pins required for replay determinism.

@@ -157,6 +157,11 @@ func resolveField(ctx model.Context, fr model.FusedRisk, field string) (string, 
 		return string(ctx.Tool.PermissionClass), true
 	case "tool.trust_state":
 		return string(ctx.Tool.TrustState), true
+	case "tool.approval_valid":
+		if ctx.Tool.ApprovalValid {
+			return "true", true
+		}
+		return "false", true
 	case "actor.privilege_level":
 		return ctx.Actor.PrivilegeLevel, true
 	case "application.environment":

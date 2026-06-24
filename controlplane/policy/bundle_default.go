@@ -72,7 +72,7 @@ func DefaultBundle() Bundle {
 				},
 			},
 			{
-				// Golden Scenario 3: Tool Pre-Execution Confirmation.
+				// Golden Scenario 3: Tool Pre-Execution Confirmation (no valid approval yet).
 				PolicyID: "external_tool_sensitive_policy",
 				Version:  "1.0.0",
 				Status:   "prod",
@@ -82,6 +82,7 @@ func DefaultBundle() Bundle {
 					All: []Predicate{
 						{Field: "tool.permission_class", Op: "eq", Value: []string{"external_send"}},
 						{Field: "data.sensitivity", Op: "in", Value: []string{"confidential", "restricted", "regulated"}},
+						{Field: "tool.approval_valid", Op: "eq", Value: []string{"false"}},
 					},
 				},
 				RuleIDs: []string{"rule-tool-001"},
@@ -92,6 +93,67 @@ func DefaultBundle() Bundle {
 						ConfirmationRequired: true,
 						EvidenceRequired:     true, AuditRequired: true,
 					},
+				},
+			},
+			{
+				// Tool pre-execution with a VALID confirmation binding -> allow.
+				PolicyID: "external_tool_approved_policy",
+				Version:  "1.0.0",
+				Status:   "prod",
+				Priority: 100,
+				Scope:    Scope{Stages: []model.Stage{model.StageToolPreExecution}, Environments: allEnv, AppIDs: []string{"*"}, TenantIDs: []string{"*"}},
+				Condition: Condition{
+					All: []Predicate{
+						{Field: "tool.permission_class", Op: "eq", Value: []string{"external_send"}},
+						{Field: "data.sensitivity", Op: "in", Value: []string{"confidential", "restricted", "regulated"}},
+						{Field: "tool.approval_valid", Op: "eq", Value: []string{"true"}},
+					},
+				},
+				RuleIDs: []string{"rule-tool-approved"},
+				Decision: PolicyDecision{
+					Action:     model.ActionAllow,
+					ReasonCode: "external_tool_action_approved",
+					Constraints: Constraints{EvidenceRequired: true, AuditRequired: true},
+				},
+			},
+			{
+				// Unknown tool with an elevated permission class -> deny (Spec v1.5 §20.4).
+				PolicyID: "unknown_tool_elevated_policy",
+				Version:  "1.0.0",
+				Status:   "prod",
+				Priority: 150,
+				Scope:    Scope{Stages: []model.Stage{model.StageToolPreExecution}, Environments: allEnv, AppIDs: []string{"*"}, TenantIDs: []string{"*"}},
+				Condition: Condition{
+					All: []Predicate{
+						{Field: "tool.trust_state", Op: "eq", Value: []string{"unknown"}},
+						{Field: "tool.permission_class", Op: "in", Value: []string{"write", "external_send", "privileged"}},
+					},
+				},
+				RuleIDs: []string{"rule-unknown-elevated"},
+				Decision: PolicyDecision{
+					Action:     model.ActionDeny,
+					ReasonCode: "unknown_tool_elevated_denied",
+					Constraints: Constraints{EvidenceRequired: true, AuditRequired: true},
+				},
+			},
+			{
+				// Unknown tool with a read permission class -> require_review (Spec v1.5 §20.4).
+				PolicyID: "unknown_tool_read_policy",
+				Version:  "1.0.0",
+				Status:   "prod",
+				Priority: 140,
+				Scope:    Scope{Stages: []model.Stage{model.StageToolPreExecution}, Environments: allEnv, AppIDs: []string{"*"}, TenantIDs: []string{"*"}},
+				Condition: Condition{
+					All: []Predicate{
+						{Field: "tool.trust_state", Op: "eq", Value: []string{"unknown"}},
+						{Field: "tool.permission_class", Op: "eq", Value: []string{"read"}},
+					},
+				},
+				RuleIDs: []string{"rule-unknown-read"},
+				Decision: PolicyDecision{
+					Action:     model.ActionRequireReview,
+					ReasonCode: "unknown_tool_read_review",
+					Constraints: Constraints{ReviewQueue: "tool_security", EvidenceRequired: true, AuditRequired: true},
 				},
 			},
 		},
