@@ -16,6 +16,7 @@ import (
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/idutil"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/matrix"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/model"
+	"github.com/raccoonrat/cloud-native-ai-security/controlplane/gate"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/policy"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/replay"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/sign"
@@ -310,6 +311,65 @@ func (s *Service) ReplayDecision(decisionID string) (replay.Result, error) {
 		return replay.Result{}, fmt.Errorf("service: no replay snapshot for decision %q", decisionID)
 	}
 	return replay.Run(snap, s.bundle, s.fusionCfg), nil
+}
+
+// ReleaseGateRequest evaluates a candidate policy bundle against the runtime's
+// current bundle (Spec v1.5 §16.5, §18). The historical decision snapshots are
+// used as the replay-regression corpus; latency / evidence completeness are
+// supplied as observed measurements (computed outside the deterministic core).
+type ReleaseGateRequest struct {
+	GateID                       string            `json:"gate_id"`
+	Target                       gate.Target       `json:"target"`
+	CandidateBundle              policy.Bundle     `json:"candidate_bundle"`
+	Thresholds                   *gate.Thresholds  `json:"thresholds,omitempty"`
+	Artifacts                    gate.ArtifactRefs `json:"artifacts"`
+	ObservedEvidenceCompleteness float64           `json:"observed_evidence_completeness,omitempty"`
+	ObservedP95LatencyMs         int64             `json:"observed_p95_latency_ms,omitempty"`
+}
+
+// EvaluateReleaseGate runs the Release Gate for a candidate policy bundle,
+// producing a GateEvaluationRecord (INV-6: every release-gated change yields one).
+func (s *Service) EvaluateReleaseGate(req ReleaseGateRequest) gate.GateEvaluationRecord {
+	s.mu.Lock()
+	corpus := make([]gate.Sample, 0, len(s.snapshots))
+	for _, snap := range s.snapshots {
+		corpus = append(corpus, gate.Sample{
+			Inputs:               snap,
+			ExpectedAction:       snap.OriginalAction,
+			ExpectedReason:       snap.OriginalReason,
+			ShouldIntervene:      isActiveControl(snap.OriginalAction),
+			EvidenceCompleteness: req.ObservedEvidenceCompleteness,
+		})
+	}
+	current := s.bundle
+	cfg := s.fusionCfg
+	s.mu.Unlock()
+
+	th := gate.DefaultThresholds()
+	if req.Thresholds != nil {
+		th = *req.Thresholds
+	}
+	return gate.Evaluate(gate.Request{
+		GateID:                       req.GateID,
+		Target:                       req.Target,
+		CurrentBundle:                current,
+		CandidateBundle:              req.CandidateBundle,
+		Corpus:                       corpus,
+		FusionConfig:                 cfg,
+		Thresholds:                   th,
+		Artifacts:                    req.Artifacts,
+		ObservedEvidenceCompleteness: req.ObservedEvidenceCompleteness,
+		ObservedP95LatencyMs:         req.ObservedP95LatencyMs,
+	})
+}
+
+func isActiveControl(a model.Action) bool {
+	switch a {
+	case model.ActionAllow, model.ActionAuditOnly, model.ActionAnnotateRisk:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Service) putSnapshot(id string, in replay.Inputs) {

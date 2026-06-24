@@ -1,8 +1,8 @@
-# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–4)
+# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–5)
 
 Reference implementation of the Enterprise AI Runtime Security Control Plane,
 per spec `[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md`
-(§23 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4).
+(§23 Sprint 1 + Sprint 2 + Sprint 3 + Sprint 4 + Sprint 5).
 
 This module is a **compilable, testable end-to-end vertical slice**: the
 contracts, deterministic fusion, deterministic policy resolution, the
@@ -11,8 +11,10 @@ first-write-wins idempotency, signed Decision Contract), evidence commit +
 completeness scoring, a mock Enforcement Adapter, the **Tool / MCP
 pre-execution security slice** (metadata snapshots, drift detection, trust
 state, confirmation binding + TOCTOU re-validation), **decision-level Replay**
-(`POST /v1/replay:decision`), and an **Evaluation Harness** producing per-stage
-/ per-risk-family metric cards. It has **zero external dependencies** (Go
+(`POST /v1/replay:decision`), an **Evaluation Harness** producing per-stage
+/ per-risk-family metric cards, and the **Release Gate** (INV-6) with policy
+diff, dry-run, replay regression, and a gate decision
+(`POST /v1/release-gates:evaluate`). It has **zero external dependencies** (Go
 stdlib only).
 
 ## Layout
@@ -40,7 +42,10 @@ controlplane/
 │   ├── resolve.go                 action strength order + constraint union
 │   ├── evaluate.go                policy evaluator v0 (scope + condition match)
 │   ├── bundle_default.go          MVP bundle for the 3 golden scenarios
+│   ├── diff.go                    policy diff + blast radius + diff risk (§16.5/§18)
 │   └── resolve_test.go
+├── gate/                          Release Gate (INV-6, v1.5 §16.5/§18)
+│   └── gate.go                    diff + dry-run + replay regression -> gate decision
 ├── tool/                          Tool/MCP pre-execution security (v1.5 §15, INV-5)
 │   ├── tool.go                    ActionContext, snapshot, drift, trust, fingerprint
 │   └── tool_test.go
@@ -60,12 +65,13 @@ controlplane/
 ├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
 ├── idutil/                        prefixed id generation
 ├── service/                       runtime decision MVP
-│   ├── service.go                 Evaluate(): provenance -> fuse -> resolve -> sign -> evidence; ReplayDecision()
+│   ├── service.go                 Evaluate(); ReplayDecision(); EvaluateReleaseGate()
 │   ├── registry.go                Detector Registry (INV-7)
-│   ├── http.go                    POST /v1/decisions:evaluate, POST /v1/replay:decision
+│   ├── http.go                    POST /v1/decisions:evaluate, /v1/replay:decision, /v1/release-gates:evaluate
 │   ├── defaults.go                fully-wired default Service
 │   ├── golden_test.go            3 golden scenarios end to end
-│   └── replay_test.go            golden-replay reproduction + completeness
+│   ├── replay_test.go            golden-replay reproduction + completeness
+│   └── gate_test.go              release gate blocks breaking policy update
 └── cmd/controlplane/main.go       HTTP server
 ```
 
@@ -151,6 +157,23 @@ go test ./...
   rates, p95 latency — broken down **per stage** and **per risk family**, with a
   per-case metric `Card` and a `Report.Render()` summary.
 
+### Sprint 5 — Release Gate (INV-6)
+- **Policy diff + blast radius** (`policy.Diff`, §16.5/§18): added / removed /
+  modified policies, affected stages / actions / apps, and a `policy_diff_risk`
+  classification — **critical** when an active control is removed or weakened,
+  **high** on other action changes, **medium** on additions / constraint edits,
+  **low** for metadata-only diffs.
+- **Release Gate** (`gate.Evaluate`, `service.EvaluateReleaseGate`,
+  `POST /v1/release-gates:evaluate`): runs the candidate bundle as a **dry-run**
+  over a labeled / historical corpus and a **replay regression** vs the current
+  bundle, computes the §17.2 metric set, and renders a `GateEvaluationRecord`
+  binding the target + artifacts (offline-eval / replay-regression / policy-diff
+  / latency report refs). INV-6: every release-gated change produces one record.
+- **Deterministic gate decision** (`gate.Decide`, §18.2):
+  `block` (contained floor failure) → `rollback_required` (floor failure +
+  severe behavior drift) → `shadow_only` (critical diff risk) → `canary_only`
+  (high diff risk / elevated drift) → `pass_with_warning` → `pass`.
+
 ### Golden / tool scenario results
 | Scenario | Stage | Decision |
 | -------- | ----- | -------- |
@@ -169,10 +192,12 @@ go test ./...
 - Edge security: mTLS, workload identity, rate limiting, anti-replay (§5.1/§5.2)
   — belongs to the serving edge, intentionally out of the handler.
 - Async judge augmentation + `decision_revision` flow (§6.2 fields are present).
-- Release Gate (`GateEvaluationRecord`) wiring for matrix/policy promotion (§22).
+- Persisting the `GateEvaluationRecord` + enforcing it as a promotion guard
+  (bundle activation hook); the gate decision is computed but not yet wired to
+  block live bundle swaps.
 - Evidence encryption + tenant isolation / durable evidence store (current store
   is in-memory; completeness scoring + enrichment are implemented).
-- Replay snapshots persisted to a durable store (current snapshot map is
+- Replay / gate corpora persisted to a durable store (current snapshot map is
   in-memory, keyed by `decision_id`).
 - HTTP route for `EvaluateToolAction` (currently the in-process API; the
   `/v1/decisions:evaluate` handler covers the non-tool path).
@@ -198,3 +223,6 @@ go test ./...
 | Evidence completeness scoring (§13.5) | `evidence.Package.Completeness` | `TestCompleteness_*` |
 | Decision replay reproduction (§14) | `replay.Run` / `service.ReplayDecision` | `TestReplay_GoldenScenariosReproduce`, `TestReplay_*` |
 | Evaluation metric cards (§17) | `eval.Run` | `TestHarness_Report` |
+| Policy diff risk classification (§16.5/§18) | `policy.Diff` | `TestDiff_*` |
+| Gate blocks breaking policy update (INV-6) | `gate.Decide` / `service.EvaluateReleaseGate` | `TestGate_BlockOnRegression`, `TestReleaseGate_BlocksBreakingPolicyUpdate` |
+| Canary-only / rollback-required outcomes (§18.2) | `gate.Decide` | `TestGate_CanaryOnlyOnDrift`, `TestGate_RollbackRequiredOnSevereRegression` |

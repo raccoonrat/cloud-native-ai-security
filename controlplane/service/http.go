@@ -15,6 +15,7 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/decisions:evaluate", s.handleEvaluate)
 	mux.HandleFunc("/v1/replay:decision", s.handleReplay)
+	mux.HandleFunc("/v1/release-gates:evaluate", s.handleReleaseGate)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -42,6 +43,22 @@ func (s *Service) handleReplay(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (s *Service) handleReleaseGate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "use POST")
+		return
+	}
+	var req ReleaseGateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	rec := s.EvaluateReleaseGate(req)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(rec)
 }
 
 func (s *Service) handleEvaluate(w http.ResponseWriter, r *http.Request) {
