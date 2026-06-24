@@ -1,13 +1,15 @@
-# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1 skeleton)
+# controlplane — Enterprise AI Runtime Security Control Plane (Sprint 1–2)
 
-Reference implementation of the **contract foundation** for the Enterprise AI
-Runtime Security Control Plane, per spec
-`[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md` (Sprint 1, §23).
+Reference implementation of the Enterprise AI Runtime Security Control Plane,
+per spec `[10]Cloud Native Enterprise AI Security Control Plane -v1.6.md`
+(§23 Sprint 1 + Sprint 2).
 
-This module is the **compilable, testable vertical-slice skeleton**: the
-contracts, the deterministic fusion engine, and the deterministic policy
-conflict resolver — the pieces that make `replay_consistency` achievable by
-construction. It has **zero external dependencies** (Go stdlib only).
+This module is a **compilable, testable end-to-end vertical slice**: the
+contracts, deterministic fusion, deterministic policy resolution, the
+`POST /v1/decisions:evaluate` runtime decision API (INV-7 provenance check,
+first-write-wins idempotency, signed Decision Contract), minimal synchronous
+evidence commit, and a mock Enforcement Adapter. It has **zero external
+dependencies** (Go stdlib only).
 
 ## Layout
 
@@ -30,9 +32,34 @@ controlplane/
 ├── fusion/                        deterministic fusion engine (v1.6 §3)
 │   ├── fuse.go                    normalize -> monotonic rule merge -> aggregate
 │   └── fuse_test.go               golden vectors TV-1..TV-6
-└── policy/                        deterministic conflict resolution (v1.6 §4)
-    ├── resolve.go                 action strength order + constraint union
-    └── resolve_test.go            v1.5 §10.4 pairwise + multi-policy union
+├── policy/                        deterministic conflict resolution (v1.6 §4)
+│   ├── resolve.go                 action strength order + constraint union
+│   ├── evaluate.go                policy evaluator v0 (scope + condition match)
+│   ├── bundle_default.go          MVP bundle for the 3 golden scenarios
+│   └── resolve_test.go
+├── decision/                      Decision Contract (INV-3, v1.6 §11)
+│   └── contract.go                build + hash + sign + validate
+├── evidence/                      minimal synchronous evidence commit (v1.6 §13.3)
+├── enforcement/                   mock Enforcement Adapter (v1.5 §12)
+├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
+├── idutil/                        prefixed id generation
+├── service/                       runtime decision MVP
+│   ├── service.go                 Evaluate(): provenance -> fuse -> resolve -> sign -> evidence
+│   ├── registry.go                Detector Registry (INV-7)
+│   ├── http.go                    POST /v1/decisions:evaluate
+│   ├── defaults.go                fully-wired default Service
+│   └── golden_test.go            3 golden scenarios end to end
+└── cmd/controlplane/main.go       HTTP server
+```
+
+## Run the server
+
+```bash
+cd controlplane
+go run ./cmd/controlplane          # listens on :8080 (CONTROL_PLANE_ADDR to change)
+
+curl -s -X POST localhost:8080/v1/decisions:evaluate \
+  -H 'Content-Type: application/json' -d @example_request.json
 ```
 
 > Note: the v1.6 spec doc shows the Stage x Action Matrix in YAML for
@@ -49,28 +76,51 @@ go vet ./...
 go test ./...
 ```
 
-## What is implemented (Sprint 1 DoD)
+## What is implemented
 
-- **Stage × Action Matrix** as a single source of truth backing lint (PL-002),
-  decision-output validation, and enforcement-input validation (`matrix.Validate`).
-- **Deterministic Fusion** (`fusion.Fuse`): canonical normalization (total order
-  via `signal_id` tiebreak), monotonic lattice merge (order-independent),
-  fixed-precedence rules FR-008..FR-006, and the `deterministic_v1` confidence
-  aggregation. Proven order-independent by `TestTV6_OrderIndependence`.
-- **Deterministic Policy Resolution** (`policy.Resolve`): action strength total
-  order for primary selection + most-restrictive constraint union, including the
-  "combine" semantics for `require_confirmation` + `step_up_auth`, terminal-stop
-  suppression, redaction-profile-tie escalation, and environment fail behavior.
-- **JSON Schemas** for Context / Signal / Decision (incl. INV-7 provenance and
-  the §6.2 `decision_revision` fields).
+### Sprint 1 — Contract Foundation
+- **Stage × Action Matrix** single source of truth (`matrix.Validate`) backing
+  lint (PL-002), decision-output validation, and enforcement-input validation.
+- **Deterministic Fusion** (`fusion.Fuse`): canonical normalization, monotonic
+  lattice merge (order-independent), FR-008..FR-006, `deterministic_v1`
+  aggregation. Proven order-independent (`TestTV6_OrderIndependence`).
+- **Deterministic Policy Resolution** (`policy.Resolve`): action strength order +
+  constraint union, "combine" semantics, terminal-stop suppression,
+  redaction-tie escalation, fail-closed defaults.
+- **JSON Schemas** for Context / Signal / Decision (INV-7 + §6.2 fields).
+
+### Sprint 2 — Runtime Decision MVP
+- **`POST /v1/decisions:evaluate`** (`service.Service`) orchestrating
+  provenance → fusion → policy → signed decision → evidence.
+- **INV-7 provenance** (`service.verifyProvenance`): unregistered/invalid sources
+  dropped and surfaced as `registry_miss` / `signal_integrity_violation`, recorded
+  in `replay_binding.dropped_signals`.
+- **First-write-wins idempotency** keyed by `(trace_id, request_id, stage)` (§5.3).
+- **Policy evaluator v0** (`policy.Bundle.Match`) + MVP bundle covering all
+  three golden scenarios.
+- **Decision Contract** built, hashed, and HMAC-signed (`decision.Build`); §11.2
+  correctness validated (`decision.Validate`).
+- **Minimal synchronous evidence commit** (`evidence.MemStore`, §13.3).
+- **Mock Enforcement Adapter** (`enforcement.MockAdapter`): verifies signature
+  (INV-3 extended), validates against the matrix, executes the action; gates
+  (`require_confirmation`/`step_up_auth`/`require_review`) return `skipped`.
+
+### Golden scenario results (`service/golden_test.go`)
+| Scenario | Stage | Decision |
+| -------- | ----- | -------- |
+| 1 Enterprise data leakage | output | `redact` |
+| 2 Prompt injection retrieval | retrieval | `restrict_scope` |
+| 3 Tool pre-execution | tool_pre_execution | `require_confirmation` (tool not executed) |
+| 3b Revoked tool | tool_pre_execution | `deny` |
 
 ## Not yet implemented (later sprints)
 
-- `POST /v1/decisions:evaluate` HTTP surface + idempotency store (Sprint 2).
-- Signal Adapter / Context Normalizer / Enforcement Adapter (Sprint 2-3).
-- Evidence Package, Replay-lite, Evaluation Harness, Release Gate (Sprint 4-5).
-- JSON Schema runtime validation wiring (the schemas are embedded; a validator
-  can be added without external deps or via a vetted library when network allows).
+- Edge security: mTLS, workload identity, rate limiting, anti-replay (§5.1/§5.2)
+  — belongs to the serving edge, intentionally out of the handler.
+- Async judge augmentation + `decision_revision` flow (§6.2 fields are present).
+- Replay-lite API, Evaluation Harness, Release Gate (Sprint 4–5).
+- Full Evidence Package enrichment + encryption/tenant isolation (Sprint 4).
+- JSON Schema runtime validation wiring (schemas embedded; validator pending).
 
 ## Design guarantees
 
@@ -81,3 +131,7 @@ go test ./...
 | Single-source stage/action validation | `matrix` | `TestStageActionRules` |
 | Policy conflict determinism | action strength order | `TestPairwiseConflicts`, `TestMultiPolicyConstraintUnion` |
 | Fail-closed defaults | `policy.defaultDecision` | `TestDefaultDecisionFailClosed` |
+| Idempotency (first-write-wins) | `service.storeIfAbsent` | `TestIdempotencyFirstWriteWins` |
+| Signal provenance (INV-7) | `service.verifyProvenance` | `TestProvenanceDropsUnregisteredSource` |
+| Decision signing + verify | `decision.Build` / `enforcement` | golden tests `assertReplayBindingComplete` |
+| End-to-end golden scenarios | `service.Evaluate` | `TestGolden1/2/3/3b` |

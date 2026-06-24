@@ -5,7 +5,10 @@
 // ordered ranks defined for each enum.
 package model
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Stage is one of the four MVP runtime stages (Spec v1.6 §2.1).
 type Stage string
@@ -43,6 +46,19 @@ func (s Severity) Join(o Severity) Severity {
 	return s
 }
 
+// MarshalJSON renders severity as its canonical string (matches the JSON Schema enum).
+func (s Severity) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
+
+// UnmarshalJSON accepts the canonical severity string form.
+func (s *Severity) UnmarshalJSON(b []byte) error {
+	var v string
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*s = ParseSeverity(v)
+	return nil
+}
+
 // ParseSeverity parses a severity string; "" and unknown map to SeverityNone.
 func ParseSeverity(v string) Severity {
 	switch v {
@@ -73,6 +89,26 @@ var uncertaintyName = map[Uncertainty]string{
 }
 
 func (u Uncertainty) String() string { return uncertaintyName[u] }
+
+// MarshalJSON renders uncertainty as its canonical string.
+func (u Uncertainty) MarshalJSON() ([]byte, error) { return json.Marshal(u.String()) }
+
+// UnmarshalJSON accepts the canonical uncertainty string form.
+func (u *Uncertainty) UnmarshalJSON(b []byte) error {
+	var v string
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch v {
+	case "medium":
+		*u = UncertaintyMedium
+	case "high":
+		*u = UncertaintyHigh
+	default:
+		*u = UncertaintyLow
+	}
+	return nil
+}
 
 // Join returns the lattice join (max).
 func (u Uncertainty) Join(o Uncertainty) Uncertainty {

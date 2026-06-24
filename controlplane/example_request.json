@@ -1,0 +1,28 @@
+{
+  "context": {
+    "schema_version": "1.6",
+    "context_id": "ctx-example",
+    "trace_id": "trace-example",
+    "request_id": "req-example",
+    "stage": "output",
+    "actor": { "tenant_id": "tenant-1", "privilege_level": "medium" },
+    "application": { "app_id": "support-assistant", "environment": "prod" },
+    "data": { "sensitivity": "confidential", "data_asset_type": "customer_contract" },
+    "destination": { "boundary": "external", "channel": "email" }
+  },
+  "signals": [
+    {
+      "schema_version": "1.6",
+      "signal_id": "sig-1",
+      "trace_id": "trace-example",
+      "stage": "output",
+      "signal_type": "enterprise_data_leakage",
+      "risk_family": "PRIV",
+      "severity": "high",
+      "confidence": 0.91,
+      "source": { "source_id": "det-enterprise-data-leakage", "source_type": "model", "source_version": "1" }
+    }
+  ],
+  "mode": "prod",
+  "options": { "require_evidence_commit": true, "timeout_ms": 300 }
+}
