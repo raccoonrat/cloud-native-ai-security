@@ -1,0 +1,74 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-06-20T07:39:08+00:00",
+  "title": "Cloud Native Enterprise AI Security Control Plane",
+  "source": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/[6]Cloud Native Enterprise AI Security Control Plane -v1.2.md",
+  "primary_renderer": "frontend-slides",
+  "routes": [
+    {
+      "id": "frontend-slides",
+      "stage": "produce",
+      "purpose": "根据Humanize PPT契约生成主deck或候选预览。",
+      "reason": "用户指定 renderer=frontend-slides。",
+      "command_file": "commands/frontend-slides-agent.md",
+      "status": "brief-written",
+      "display_name": "Frontend Slides",
+      "skill_name": "frontend-slides",
+      "expected_inputs": [
+        "deck_brief.md",
+        "ast_outline.md",
+        "slide_plan.json",
+        "speaker_intent.md",
+        "asset_manifest.md",
+        "video_slots.json",
+        "style_brief.md",
+        "source.pptx"
+      ],
+      "expected_outputs": [
+        "outputs/frontend-slides-rendered/index.html"
+      ],
+      "actual_output": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2/frontend-slides-production-prompt.md"
+    },
+    {
+      "id": "html-ppt",
+      "stage": "complete",
+      "purpose": "在最终deck确定后增加演讲者模式和speaker notes。",
+      "reason": "presenter=True。",
+      "command_file": "commands/html-ppt-agent.md",
+      "status": "planned",
+      "display_name": "HTML PPT Studio",
+      "skill_name": "html-ppt",
+      "expected_inputs": [
+        "deck_brief.md",
+        "slide_plan.json",
+        "speaker_intent.md",
+        "asset_manifest.md"
+      ],
+      "expected_outputs": [
+        "outputs/html-ppt/index.html",
+        "outputs/html-ppt/render_report.md"
+      ]
+    },
+    {
+      "id": "qa",
+      "stage": "control",
+      "purpose": "检查契约、路径、人感、AI草稿痕迹和交付完整性。",
+      "reason": "所有Humanize PPT运行必须经过QA。",
+      "command_file": "commands/qa-agent.md",
+      "status": "pass",
+      "display_name": "Humanize PPT Brief-Mode QA",
+      "skill_name": "humanize-ppt",
+      "expected_inputs": [
+        "router_plan.json",
+        "run_manifest.json",
+        "outputs/"
+      ],
+      "expected_outputs": [
+        "outputs/qa/qa_report.md",
+        "outputs/qa/fix_list.md",
+        "outputs/qa/final_manifest.json"
+      ],
+      "actual_output": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2/outputs/qa/qa_report.md"
+    }
+  ]
+}

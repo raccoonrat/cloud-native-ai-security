@@ -1,0 +1,277 @@
+[
+  {
+    "slide_id": "S01",
+    "role": "hook",
+    "title": "云原生企业 AI 安全控制平面",
+    "message": "Cloud Native Enterprise AI Security Contro",
+    "visible_content": [
+      "Cloud Native Enterprise AI Security Contro",
+      "l Plane"
+    ],
+    "speaker_intent": "抓住注意力：先把观众从信息疲劳里拉出来。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "gpt-photo",
+        "purpose": "Set emotional anchor for the opening page",
+        "slot": "hook-image-16x9",
+        "asset_path": "assets/s01-image.png",
+        "prompt_hint": "Slide title: 云原生企业 AI 安全控制平面 | Slide message: Cloud Native Enterprise AI Security Contro | Page role: Open the deck. Set emotional anchor. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": false,
+        "kind": "none"
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S01-cover-hero",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S02",
+    "role": "context",
+    "title": "企业云原生 AI 安全控制平面完整设计书 V1.2",
+    "message": "企业云原生 AI 安全控制平面完整设计书 V1.2",
+    "visible_content": [
+      "企业云原生 AI 安全控制平面完整设计书 V1.2"
+    ],
+    "speaker_intent": "建立共同背景：说明为什么现在要听这件事。",
+    "media": {
+      "image": {
+        "needed": false,
+        "kind": "none"
+      },
+      "diagram": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Show the system relationship or scope",
+        "slot": "context-diagram-21x9",
+        "asset_path": "assets/s02-diagram.svg",
+        "prompt_hint": "Slide title: 企业云原生 AI 安全控制平面完整设计书 V1.2 | Slide message: 企业云原生 AI 安全控制平面完整设计书 V1.2 | Page role: Establish common ground. Show system / scope. | Asset guidance: Diagram: render as inline SVG or HTML table, deterministic, no text overflow."
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S04-context-system",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S03",
+    "role": "tension",
+    "title": "MCP / Tool-Calling Runtime Security Hardening",
+    "message": "定位：本文档面向工程团队、平台团队、安全团队、SRE 团队与产品集成团队，定义一套可",
+    "visible_content": [
+      "定位：本文档面向工程团队、平台团队、安全团队、SRE 团队与产品集成团队，定义一套可",
+      "直接落地实施的 Cloud Native Enterprise AI Security Control Plane。 目标：为企业 AI 应用、RAG、Agent、Tool Calling、模型输出等运行时链路提供统一的"
+    ],
+    "speaker_intent": "制造认知张力：指出旧理解和真实问题之间的差距。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Show before/after or contradiction visually",
+        "slot": "tension-image-16x9",
+        "asset_path": "assets/s03-image.svg",
+        "prompt_hint": "Slide title: MCP / Tool-Calling Runtime Security Hardening | Slide message: 定位：本文档面向工程团队、平台团队、安全团队、SRE 团队与产品集成团队，定义一套可 | Page role: Highlight the gap or contradiction. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": false,
+        "kind": "none"
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S06-tension-comparison",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S04",
+    "role": "method",
+    "title": "Canonical Enums, Contracts and Runtime Semantics",
+    "message": "本章是全文的“硬约束源”",
+    "visible_content": [
+      "本章是全文的“硬约束源”",
+      "所有模块（API、orchestrator、policy runtime、decision engine、trace、eval、replay、dashboard）只允许消费本章定义的 canonical enum 与 c"
+    ],
+    "speaker_intent": "给出方法：把复杂信息变成可执行路径。",
+    "media": {
+      "image": {
+        "needed": false,
+        "kind": "none"
+      },
+      "diagram": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Diagram the process / decision tree / flow",
+        "slot": "method-diagram-21x9",
+        "asset_path": "assets/s04-diagram.svg",
+        "prompt_hint": "Slide title: Canonical Enums, Contracts and Runtime Semantics | Slide message: 本章是全文的“硬约束源” | Page role: Walk through the process / decision tree. | Asset guidance: Diagram: render as inline SVG or HTML table, deterministic, no text overflow."
+      },
+      "video": {
+        "needed": true,
+        "kind": "remotion-clip",
+        "duration_s": 10,
+        "purpose": "8-12s process clip that walks through the method",
+        "slot": "method-video-16x9",
+        "asset_path": "assets/s04-video.mp4",
+        "prompt_hint": "Slide title: Canonical Enums, Contracts and Runtime Semantics | Slide message: 本章是全文的“硬约束源” | Page role: Walk through the process / decision tree. | Asset guidance: Short loop clip (8-12s), deterministic motion, no narration.",
+        "aspect_ratio": "16:9"
+      }
+    },
+    "layout_hint": "S07-process-21x9",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S05",
+    "role": "proof",
+    "title": "0.1 Canonical Runtime Stage Enum",
+    "message": "全系统只允许使用一个字段表达运行时阶段：stage",
+    "visible_content": [
+      "全系统只允许使用一个字段表达运行时阶段：stage",
+      "requesttype 被废弃（deprecated），不得再用于策略匹配、trace 标签或 eval 标签。 yaml stage: enum: inputprecheck ragqueryprecheck ragr"
+    ],
+    "speaker_intent": "给出证据：用案例、步骤或指标证明它不是口号。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "screenshot",
+        "purpose": "Screenshot evidence of the real UI or result",
+        "slot": "proof-image-16x9",
+        "asset_path": "assets/s05-image.png",
+        "prompt_hint": "Slide title: 0.1 Canonical Runtime Stage Enum | Slide message: 全系统只允许使用一个字段表达运行时阶段：stage | Page role: Show evidence: real UI, screenshots, before/after. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Diagram the comparison or supporting structure",
+        "slot": "proof-diagram-21x9",
+        "asset_path": "assets/s05-diagram.svg",
+        "prompt_hint": "Slide title: 0.1 Canonical Runtime Stage Enum | Slide message: 全系统只允许使用一个字段表达运行时阶段：stage | Page role: Show evidence: real UI, screenshots, before/after. | Asset guidance: Diagram: render as inline SVG or HTML table, deterministic, no text overflow."
+      },
+      "video": {
+        "needed": true,
+        "kind": "remotion-clip",
+        "duration_s": 8,
+        "purpose": "Short before/after or result clip",
+        "slot": "proof-video-16x9",
+        "asset_path": "assets/s05-video.mp4",
+        "prompt_hint": "Slide title: 0.1 Canonical Runtime Stage Enum | Slide message: 全系统只允许使用一个字段表达运行时阶段：stage | Page role: Show evidence: real UI, screenshots, before/after. | Asset guidance: Short loop clip (8-12s), deterministic motion, no narration.",
+        "aspect_ratio": "16:9"
+      }
+    },
+    "layout_hint": "S12-proof-metrics",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S06",
+    "role": "takeaway",
+    "title": "0.2 Canonical Action Enum 与分类",
+    "message": "yaml Action: allow logonly warn redact blo",
+    "visible_content": [
+      "yaml Action: allow logonly warn redact blo",
+      "ck escalate requireapproval rewrite removechunk reducerank safecomplete actionclasses: terminalactions:       "
+    ],
+    "speaker_intent": "收束行动：让观众带走一句可复述的方法。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Visual summary that reinforces the closing judgment",
+        "slot": "takeaway-image-16x9",
+        "asset_path": "assets/s06-image.svg",
+        "prompt_hint": "Slide title: 0.2 Canonical Action Enum 与分类 | Slide message: yaml Action: allow logonly warn redact blo | Page role: Close the deck. Reinforce the judgment. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": false,
+        "kind": "none"
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S22-takeaway",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S07",
+    "role": "takeaway",
+    "title": "0.3 Canonical Severity / RiskFamily Enum",
+    "message": "yaml Severity: none low medium high critic",
+    "visible_content": [
+      "yaml Severity: none low medium high critic",
+      "al RiskFamily: PROMPTINJECTION RAGINJECTION PIILEAKAGE ENTERPRISECONFIDENTIALLEAKAGE IPLEAKAGE DATARESIDENCYVI"
+    ],
+    "speaker_intent": "收束行动：让观众带走一句可复述的方法。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Visual summary that reinforces the closing judgment",
+        "slot": "takeaway-image-16x9",
+        "asset_path": "assets/s07-image.svg",
+        "prompt_hint": "Slide title: 0.3 Canonical Severity / RiskFamily Enum | Slide message: yaml Severity: none low medium high critic | Page role: Close the deck. Reinforce the judgment. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": false,
+        "kind": "none"
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S22-takeaway",
+    "recommended_renderer": "guizang"
+  },
+  {
+    "slide_id": "S08",
+    "role": "takeaway",
+    "title": "0.4 Decision Determinism Rules（决策可复现规则）",
+    "message": "replay consistency 成立的充要条件是 replay key 完整：",
+    "visible_content": [
+      "replay consistency 成立的充要条件是 replay key 完整：",
+      "text Same request content hash same context hash same detector versions same policy snapshot id same fusion al"
+    ],
+    "speaker_intent": "收束行动：让观众带走一句可复述的方法。",
+    "media": {
+      "image": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "Visual summary that reinforces the closing judgment",
+        "slot": "takeaway-image-16x9",
+        "asset_path": "assets/s08-image.svg",
+        "prompt_hint": "Slide title: 0.4 Decision Determinism Rules（决策可复现规则） | Slide message: replay consistency 成立的充要条件是 replay key 完整： | Page role: Close the deck. Reinforce the judgment. | Asset guidance: Image: must be visually anchored, no Chinese text in the image (Chinese labels go in the slide layout).",
+        "aspect_ratio": "16:9",
+        "max_size_kb": 200
+      },
+      "diagram": {
+        "needed": false,
+        "kind": "none"
+      },
+      "video": {
+        "needed": false,
+        "kind": "none"
+      }
+    },
+    "layout_hint": "S22-takeaway",
+    "recommended_renderer": "guizang"
+  }
+]

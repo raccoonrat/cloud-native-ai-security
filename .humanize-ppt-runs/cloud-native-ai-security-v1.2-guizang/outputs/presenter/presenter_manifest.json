@@ -1,0 +1,131 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-06-20T07:56:18+00:00",
+  "title": "云原生企业 AI 安全控制平面",
+  "deck": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2-guizang/rendered/index.html",
+  "presenter_shell": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2-guizang/outputs/presenter/presenter-shell.html",
+  "slide_count": 20,
+  "notes": [
+    {
+      "slide_id": "S01",
+      "title": "云原生企业 AI 安全控制平面",
+      "message": "V1.2 MCP / Tool-Calling 加固",
+      "script": "开场：Enterprise AI 已从文本生成进入工具执行时代，需要统一控制平面。\nV1.2 MCP / Tool-Calling 加固"
+    },
+    {
+      "slide_id": "S02",
+      "title": "范式转移",
+      "message": "从文本生成到运维控制面",
+      "script": "制造张力：Northbound API 安全必要但不充分。\n从文本生成到运维控制面"
+    },
+    {
+      "slide_id": "S03",
+      "title": "十大风险",
+      "message": "一个控制平面统一治理",
+      "script": "建立共同词汇：注入、泄密、工具滥用、证据缺口。\n一个控制平面统一治理"
+    },
+    {
+      "slide_id": "S04",
+      "title": "系统定位",
+      "message": "控制平面 vs 点状检测器",
+      "script": "划边界：是什么、不是什么。\n控制平面 vs 点状检测器"
+    },
+    {
+      "slide_id": "S05",
+      "title": "V1.2 加固",
+      "message": "八大统一安全原语",
+      "script": "XClarity One 是首场景，能力可复用。\n八大统一安全原语"
+    },
+    {
+      "slide_id": "S06",
+      "title": "控制平面优先",
+      "message": "Context → Decision → Gate",
+      "script": "讲清统一流水线，拒绝散落 if/else。\nContext → Decision → Gate"
+    },
+    {
+      "slide_id": "S07",
+      "title": "检测不决策",
+      "message": "检测器产信号，决策引擎合成",
+      "script": "强调架构分离。\n检测器产信号，决策引擎合成"
+    },
+    {
+      "slide_id": "S08",
+      "title": "八层架构",
+      "message": "Request 到 Release Gate",
+      "script": "给听众一张 mental map。\nRequest 到 Release Gate"
+    },
+    {
+      "slide_id": "S09",
+      "title": "第二幕：MCP 边界",
+      "message": "AI 中介执行边界",
+      "script": "章节过渡，呼吸。\nAI 中介执行边界"
+    },
+    {
+      "slide_id": "S10",
+      "title": "MCP 执行边界",
+      "message": "tool_pre_execution 必经控制平面",
+      "script": "核心判断：不是 API thin wrapper。\ntool_pre_execution 必经控制平面"
+    },
+    {
+      "slide_id": "S11",
+      "title": "信任链",
+      "message": "User → Client → Server → Tool → API",
+      "script": "每一跳绑定身份，参数 schema 校验。\nUser → Client → Server → Tool → API"
+    },
+    {
+      "slide_id": "S12",
+      "title": "指令/数据分离",
+      "message": "外部内容不能变可执行指令",
+      "script": "防 prompt injection 通过内容通道。\n外部内容不能变可执行指令"
+    },
+    {
+      "slide_id": "S13",
+      "title": "第三幕：运行时契约",
+      "message": "stage · action · determinism",
+      "script": "章节过渡。\nstage · action · determinism"
+    },
+    {
+      "slide_id": "S14",
+      "title": "Stage 枚举",
+      "message": "只用 stage，废弃 request_type",
+      "script": "硬约束源。\n只用 stage，废弃 request_type"
+    },
+    {
+      "slide_id": "S15",
+      "title": "Action 状态机",
+      "message": "terminal / transform / human / observe",
+      "script": "不是优先级列表。\nterminal / transform / human / observe"
+    },
+    {
+      "slide_id": "S16",
+      "title": "四类 Enforcement",
+      "message": "Input · RAG · Tool · Output",
+      "script": "Tool pre-exec 是 V1.2 重点。\nInput · RAG · Tool · Output"
+    },
+    {
+      "slide_id": "S17",
+      "title": "策略与证据",
+      "message": "Policy DSL + 两阶段 Trace",
+      "script": "Release Gate 阻断回归。\nPolicy DSL + 两阶段 Trace"
+    },
+    {
+      "slide_id": "S18",
+      "title": "实施路线",
+      "message": "P0 → P1 → P1.5 → P2 → P3",
+      "script": "先 vertical slice，再 MCP slice。\nP0 → P1 → P1.5 → P2 → P3"
+    },
+    {
+      "slide_id": "S19",
+      "title": "收束问题",
+      "message": "哪一步还没有 trace？",
+      "script": "留给听众的思考题。\n哪一步还没有 trace？"
+    },
+    {
+      "slide_id": "S20",
+      "title": "核心判断",
+      "message": "PPT 是观众状态改变器",
+      "script": "金句收尾，感谢。\nPPT 是观众状态改变器"
+    }
+  ],
+  "standalone": false
+}

@@ -1,0 +1,48 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>云原生企业 AI 安全控制平面 · Presenter Shell</title><style>
+:root{color-scheme:dark;--bg:#0d1117;--panel:#161b22;--panel2:#0f1724;--line:rgba(255,255,255,.12);--text:#f0f6fc;--muted:#8b949e;--accent:#58a6ff;--hot:#f2cc60}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;height:100vh;overflow:hidden}
+main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(360px,.95fr);gap:0;height:100vh}
+.stage{background:linear-gradient(135deg,#05070b,#111827);display:grid;place-items:center;padding:22px;border-right:1px solid var(--line)}
+iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:14px;background:#000;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+.standalone-card{width:min(82vw,900px);aspect-ratio:16/9;border:1px solid var(--line);border-radius:18px;background:radial-gradient(circle at 80% 20%,rgba(88,166,255,.18),transparent 34%),var(--panel);display:flex;flex-direction:column;justify-content:flex-end;padding:44px;box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.slide-id,.kicker{font:700 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}h1,h2,p{margin:0}h1{font-size:28px;line-height:1.15}h2{font-size:clamp(34px,5vw,74px);line-height:1.02;max-width:12ch}.standalone-card p{margin-top:18px;font-size:20px;line-height:1.5;color:var(--muted);max-width:56ch}
+aside{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:16px;padding:22px;background:var(--panel)}
+.top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.timer{font:800 42px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--hot)}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}.card{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel2);min-width:0}.label{font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}strong{font-size:18px;line-height:1.35}
+.script{overflow:auto;white-space:pre-wrap;font-size:21px;line-height:1.55;border:1px solid var(--line);border-radius:12px;padding:18px;background:#0b1220}
+.outline{display:grid;gap:6px;max-height:18vh;overflow:auto}.outline button{text-align:left;border:0;border-radius:8px;padding:8px 10px;background:transparent;color:var(--muted);cursor:pointer}.outline button.active{background:rgba(88,166,255,.14);color:var(--text)}
+.nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}button{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#1f6feb;color:white;font-weight:800;cursor:pointer}button.secondary{background:transparent;color:var(--text)}.hint{color:var(--muted);font-size:12px;margin-left:auto}
+body.script-mode main{grid-template-columns:0 1fr}body.script-mode .stage{display:none}body.script-mode aside{padding:32px 11vw}body.script-mode .script{font-size:30px}
+@media(max-width:900px){main{grid-template-columns:1fr;grid-template-rows:42vh 58vh}aside{border-top:1px solid var(--line)}.timer{font-size:30px}}
+</style></head><body><main><section class="stage"><iframe id="deckFrame" src="../../rendered/index.html?slide=1" title="Rendered deck preview"></iframe></section><aside><div class="top"><div><div class="kicker">Humanize PPT · Presenter Shell</div><h1>云原生企业 AI 安全控制平面</h1></div><div class="timer" id="timer">00:00</div></div><div class="cards"><div class="card"><div class="label">CURRENT</div><strong id="current"></strong></div><div class="card"><div class="label">NEXT</div><strong id="next"></strong></div></div><div class="script" id="script"></div><div><div class="outline" id="outline"></div><div class="nav"><button id="prev" class="secondary">←</button><button id="nextBtn">→</button><button id="toggle" class="secondary">S</button><button id="reset" class="secondary">Reset</button><span id="counter"></span><span class="hint">Shortcuts: S / ← / →</span></div></div></aside></main><script>
+const notes = [{"slide_id": "S01", "title": "云原生企业 AI 安全控制平面", "message": "V1.2 MCP / Tool-Calling 加固", "script": "开场：Enterprise AI 已从文本生成进入工具执行时代，需要统一控制平面。\nV1.2 MCP / Tool-Calling 加固"}, {"slide_id": "S02", "title": "范式转移", "message": "从文本生成到运维控制面", "script": "制造张力：Northbound API 安全必要但不充分。\n从文本生成到运维控制面"}, {"slide_id": "S03", "title": "十大风险", "message": "一个控制平面统一治理", "script": "建立共同词汇：注入、泄密、工具滥用、证据缺口。\n一个控制平面统一治理"}, {"slide_id": "S04", "title": "系统定位", "message": "控制平面 vs 点状检测器", "script": "划边界：是什么、不是什么。\n控制平面 vs 点状检测器"}, {"slide_id": "S05", "title": "V1.2 加固", "message": "八大统一安全原语", "script": "XClarity One 是首场景，能力可复用。\n八大统一安全原语"}, {"slide_id": "S06", "title": "控制平面优先", "message": "Context → Decision → Gate", "script": "讲清统一流水线，拒绝散落 if/else。\nContext → Decision → Gate"}, {"slide_id": "S07", "title": "检测不决策", "message": "检测器产信号，决策引擎合成", "script": "强调架构分离。\n检测器产信号，决策引擎合成"}, {"slide_id": "S08", "title": "八层架构", "message": "Request 到 Release Gate", "script": "给听众一张 mental map。\nRequest 到 Release Gate"}, {"slide_id": "S09", "title": "第二幕：MCP 边界", "message": "AI 中介执行边界", "script": "章节过渡，呼吸。\nAI 中介执行边界"}, {"slide_id": "S10", "title": "MCP 执行边界", "message": "tool_pre_execution 必经控制平面", "script": "核心判断：不是 API thin wrapper。\ntool_pre_execution 必经控制平面"}, {"slide_id": "S11", "title": "信任链", "message": "User → Client → Server → Tool → API", "script": "每一跳绑定身份，参数 schema 校验。\nUser → Client → Server → Tool → API"}, {"slide_id": "S12", "title": "指令/数据分离", "message": "外部内容不能变可执行指令", "script": "防 prompt injection 通过内容通道。\n外部内容不能变可执行指令"}, {"slide_id": "S13", "title": "第三幕：运行时契约", "message": "stage · action · determinism", "script": "章节过渡。\nstage · action · determinism"}, {"slide_id": "S14", "title": "Stage 枚举", "message": "只用 stage，废弃 request_type", "script": "硬约束源。\n只用 stage，废弃 request_type"}, {"slide_id": "S15", "title": "Action 状态机", "message": "terminal / transform / human / observe", "script": "不是优先级列表。\nterminal / transform / human / observe"}, {"slide_id": "S16", "title": "四类 Enforcement", "message": "Input · RAG · Tool · Output", "script": "Tool pre-exec 是 V1.2 重点。\nInput · RAG · Tool · Output"}, {"slide_id": "S17", "title": "策略与证据", "message": "Policy DSL + 两阶段 Trace", "script": "Release Gate 阻断回归。\nPolicy DSL + 两阶段 Trace"}, {"slide_id": "S18", "title": "实施路线", "message": "P0 → P1 → P1.5 → P2 → P3", "script": "先 vertical slice，再 MCP slice。\nP0 → P1 → P1.5 → P2 → P3"}, {"slide_id": "S19", "title": "收束问题", "message": "哪一步还没有 trace？", "script": "留给听众的思考题。\n哪一步还没有 trace？"}, {"slide_id": "S20", "title": "核心判断", "message": "PPT 是观众状态改变器", "script": "金句收尾，感谢。\nPPT 是观众状态改变器"}];
+let idx = 0;
+let start = Date.now();
+const deckFrame = document.getElementById('deckFrame');
+function two(n){ return String(n).padStart(2,'0'); }
+function tick(){ const s = Math.floor((Date.now() - start) / 1000); document.getElementById('timer').textContent = `${two(Math.floor(s / 60))}:${two(s % 60)}`; }
+setInterval(tick, 500); tick();
+function sendDeck(){ if(deckFrame && deckFrame.contentWindow) deckFrame.contentWindow.postMessage({type:'presenter-goto', index:idx}, '*'); }
+function itemLabel(item){ return item ? `${item.slide_id} · ${item.title}` : 'END'; }
+function renderOutline(){ const root = document.getElementById('outline'); root.innerHTML = ''; notes.forEach((n,i)=>{ const b=document.createElement('button'); b.textContent=itemLabel(n); b.className=i===idx?'active':''; b.onclick=()=>go(i); root.appendChild(b); }); }
+function render(){
+  const item = notes[idx] || notes[0];
+  const next = notes[idx + 1];
+  document.getElementById('current').textContent = itemLabel(item);
+  document.getElementById('next').textContent = itemLabel(next);
+  document.getElementById('script').textContent = item ? item.script : '';
+  document.getElementById('counter').textContent = `${idx + 1} / ${notes.length}`;
+  const sid = document.getElementById('stageSlideId'); if(sid) sid.textContent = item ? item.slide_id : '';
+  const st = document.getElementById('stageTitle'); if(st) st.textContent = item ? item.title : '';
+  const sm = document.getElementById('stageMessage'); if(sm) sm.textContent = item ? item.message : '';
+  renderOutline(); sendDeck();
+}
+function go(n){ idx = Math.max(0, Math.min(notes.length - 1, n)); render(); }
+document.getElementById('prev').onclick = () => go(idx - 1);
+document.getElementById('nextBtn').onclick = () => go(idx + 1);
+document.getElementById('toggle').onclick = () => document.body.classList.toggle('script-mode');
+document.getElementById('reset').onclick = () => { start = Date.now(); tick(); };
+document.addEventListener('keydown', e => { if(e.key === 'ArrowRight') go(idx + 1); if(e.key === 'ArrowLeft') go(idx - 1); if(e.key.toLowerCase() === 's') document.body.classList.toggle('script-mode'); });
+if(deckFrame) deckFrame.addEventListener('load', sendDeck);
+render();
+</script></body></html>

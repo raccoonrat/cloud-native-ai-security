@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Native Enterprise AI Security Control Plane v1.2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --stage-bg: #050810;
+      --slide-bg: #0a0f1a;
+      --ink: #e8edf5;
+      --muted: #8b9bb8;
+      --accent: #00d4aa;
+      --accent-dim: #00a884;
+      --warn: #ffb020;
+      --danger: #ff5c6a;
+      --panel: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.08);
+      --glow: rgba(0,212,170,0.15);
+    }
+
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: var(--stage-bg);
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      color: var(--ink);
+    }
+
+    .deck-viewport { position: fixed; inset: 0; overflow: hidden; background: var(--stage-bg); }
+    .deck-stage {
+      position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+      overflow: hidden; transform-origin: 0 0; background: var(--slide-bg);
+    }
+    .slide {
+      position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden;
+      display: block; visibility: hidden; opacity: 0; pointer-events: none;
+      background: var(--slide-bg);
+    }
+    .slide.active, .slide.visible {
+      visibility: visible; opacity: 1; pointer-events: auto; z-index: 1;
+    }
+    img, video, canvas, svg { max-width: 100%; max-height: 100%; }
+
+    .grid-bg {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,170,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,170,0.03) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black, transparent);
+    }
+
+    .slide-inner { position: relative; z-index: 2; width: 100%; height: 100%; padding: 80px 100px; box-sizing: border-box; }
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 500;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 24px;
+    }
+    h1 { font-size: 88px; font-weight: 700; line-height: 1.05; margin: 0 0 32px; letter-spacing: -0.02em; }
+    h2 { font-size: 64px; font-weight: 700; line-height: 1.1; margin: 0 0 40px; letter-spacing: -0.02em; max-width: 1500px; }
+    .subtitle { font-size: 36px; line-height: 1.45; color: var(--muted); max-width: 1200px; }
+    .bullets { list-style: none; padding: 0; margin: 0; }
+    .bullets li {
+      font-size: 34px; line-height: 1.45; margin-bottom: 28px; padding-left: 40px; position: relative; max-width: 1400px;
+    }
+    .bullets li::before {
+      content: ''; position: absolute; left: 0; top: 18px; width: 12px; height: 12px;
+      background: var(--accent); border-radius: 2px;
+    }
+    .bullets li strong { color: var(--accent); font-weight: 600; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: start; height: calc(100% - 180px); }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+      padding: 40px 44px; height: 100%; box-sizing: border-box;
+    }
+    .panel h3 { font-size: 28px; color: var(--accent); margin: 0 0 24px; font-family: 'JetBrains Mono', monospace; }
+    .panel ul { list-style: none; padding: 0; margin: 0; }
+    .panel ul li { font-size: 26px; line-height: 1.5; color: var(--muted); margin-bottom: 16px; padding-left: 24px; position: relative; }
+    .panel ul li::before { content: '→'; position: absolute; left: 0; color: var(--accent-dim); }
+    .mono { font-family: 'JetBrains Mono', monospace; font-size: 24px; color: var(--muted); line-height: 1.6; }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
+    .tag {
+      font-family: 'JetBrains Mono', monospace; font-size: 20px; padding: 10px 18px;
+      border: 1px solid var(--border); border-radius: 8px; color: var(--muted); background: var(--panel);
+    }
+    .tag.accent { border-color: var(--accent); color: var(--accent); }
+    .tag.warn { border-color: var(--warn); color: var(--warn); }
+    .tag.danger { border-color: var(--danger); color: var(--danger); }
+    .flow { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+    .flow-step {
+      display: flex; align-items: center; gap: 20px; font-size: 24px; color: var(--ink);
+      padding: 16px 24px; background: var(--panel); border-radius: 10px; border-left: 4px solid var(--accent);
+    }
+    .flow-step .num { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-weight: 600; min-width: 36px; }
+    .page-num {
+      position: absolute; bottom: 48px; right: 100px;
+      font-family: 'JetBrains Mono', monospace; font-size: 20px; color: var(--muted);
+    }
+    .hero-accent {
+      position: absolute; width: 600px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, var(--glow), transparent 70%);
+      top: -100px; right: -100px; pointer-events: none;
+    }
+    .quote {
+      font-size: 42px; line-height: 1.5; font-weight: 500; max-width: 1300px;
+      border-left: 6px solid var(--accent); padding-left: 40px; margin-top: 40px;
+    }
+    .roadmap { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; margin-top: 40px; }
+    .phase {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px 24px;
+      border-top: 4px solid var(--accent);
+    }
+    .phase.highlight { border-top-color: var(--warn); box-shadow: 0 0 40px var(--glow); }
+    .phase .label { font-family: 'JetBrains Mono', monospace; font-size: 22px; color: var(--accent); margin-bottom: 12px; }
+    .phase .title { font-size: 22px; font-weight: 600; margin-bottom: 16px; line-height: 1.3; }
+    .phase ul { list-style: none; padding: 0; margin: 0; }
+    .phase ul li { font-size: 17px; color: var(--muted); margin-bottom: 8px; line-height: 1.35; }
+
+    .deck-controls {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1000;
+      display: flex; gap: 12px; align-items: center;
+    }
+    .deck-controls button {
+      background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: var(--ink);
+      padding: 10px 20px; border-radius: 8px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    }
+    .deck-controls button:hover { background: rgba(0,212,170,0.15); border-color: var(--accent); }
+    .deck-controls span { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--muted); min-width: 80px; text-align: center; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+    }
+    @media print {
+      html, body { width: 1920px; height: auto; overflow: visible; }
+      .deck-viewport { position: static; overflow: visible; }
+      .deck-stage { position: static; width: auto; height: auto; transform: none !important; }
+      .slide { position: relative; display: block !important; visibility: visible !important; opacity: 1 !important;
+        width: 1920px; height: 1080px; break-after: page; }
+      .deck-controls { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck-viewport">
+    <div class="deck-stage" id="stage">
+
+      <!-- S01 Title -->
+      <section class="slide active" data-slide="1">
+        <div class="grid-bg"></div>
+        <div class="hero-accent"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Design Specification v1.2</div>
+          <h1>Cloud Native Enterprise<br>AI Security Control Plane</h1>
+          <p class="subtitle">Unified runtime security for Enterprise AI — input, RAG, tools, agents, and model output — with policy-driven decisions, audit-grade evidence, and release gates.</p>
+          <div class="tag-row">
+            <span class="tag accent">MCP / Tool-Calling</span>
+            <span class="tag">Kubernetes</span>
+            <span class="tag">Policy Runtime</span>
+            <span class="tag">Release Gate</span>
+          </div>
+        </div>
+        <div class="page-num">01 / 20</div>
+      </section>
+
+      <!-- S02 The Shift -->
+      <section class="slide" data-slide="2">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">The Shift</div>
+          <h2>Enterprise AI moved from text generation to tool execution</h2>
+          <p class="quote">MCP and tool-calling expose the first real security requirements when AI enters the operations control plane — not a product-local problem, but a platform-wide one.</p>
+          <ul class="bullets" style="margin-top:48px">
+            <li>Natural language intent → API calls with side effects</li>
+            <li>Prompt injection can alter tool selection and arguments</li>
+            <li>Northbound API security is <strong>necessary but not sufficient</strong></li>
+          </ul>
+        </div>
+        <div class="page-num">02 / 20</div>
+      </section>
+
+      <!-- S03 Problem -->
+      <section class="slide" data-slide="3">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Problem Space</div>
+          <h2>Ten risk categories — one control plane</h2>
+          <div class="two-col" style="height:auto;margin-top:20px">
+            <div class="panel">
+              <h3>Runtime Risks</h3>
+              <ul>
+                <li>Prompt & RAG injection</li>
+                <li>PII & confidential leakage</li>
+                <li>Tool abuse & unauthorized access</li>
+                <li>Unsafe agent automation</li>
+                <li>Transport trust (TLS, certs)</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h3>Operational Gaps</h3>
+              <ul>
+                <li>No unified policy across apps</li>
+                <li>Detectors deciding alone</li>
+                <li>Missing audit evidence</li>
+                <li>No replay or release gate</li>
+                <li>Compliance evidence gap</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="page-num">03 / 20</div>
+      </section>
+
+      <!-- S04 What It Is -->
+      <section class="slide" data-slide="4">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Scope</div>
+          <h2>A control plane — not a point detector</h2>
+          <div class="two-col">
+            <div class="panel" style="border-color: rgba(0,212,170,0.3)">
+              <h3 style="color:var(--accent)">✓ This System Is</h3>
+              <ul>
+                <li>Unified AI runtime security control plane</li>
+                <li>Policy-driven, context-aware decisions</li>
+                <li>Multi-signal fusion + explainable actions</li>
+                <li>Audit-grade trace & evidence store</li>
+                <li>Continuous evaluation & release gate</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h3 style="color:var(--muted)">✗ This System Is Not</h3>
+              <ul>
+                <li>Model training security platform</li>
+                <li>IAM / RBAC replacement</li>
+                <li>Full DLP replacement</li>
+                <li>Single content moderation service</li>
+                <li>LLM-judge-only guardrail</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="page-num">04 / 20</div>
+      </section>
+
+      <!-- S05 V1.2 -->
+      <section class="slide" data-slide="5">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">V1.2 Focus</div>
+          <h2>MCP / Tool-Calling Runtime Security Hardening</h2>
+          <ul class="bullets">
+            <li><strong>Instruction/Data Separation</strong> — external content cannot become executable instructions</li>
+            <li><strong>Tool-to-API Trust Chain</strong> — user → client → MCP server → tool → API → resource</li>
+            <li><strong>Tool Argument Security Contract</strong> — schema + resource-scope validation</li>
+            <li><strong>Explicit Confirmation</strong> — disruptive actions require user confirmation</li>
+            <li><strong>Transport Trust Policy</strong> — no self-signed certs in production</li>
+          </ul>
+        </div>
+        <div class="page-num">05 / 20</div>
+      </section>
+
+      <!-- S06 Eight Primitives -->
+      <section class="slide" data-slide="6">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Unified Abstraction</div>
+          <h2>Eight security primitives — not product-local fixes</h2>
+          <div class="tag-row" style="margin-top:48px">
+            <span class="tag accent">Trust Chain</span>
+            <span class="tag accent">Transport Trust</span>
+            <span class="tag accent">Tool Risk</span>
+            <span class="tag accent">Argument Security</span>
+            <span class="tag accent">Explicit Confirmation</span>
+            <span class="tag accent">Risk-based Throttling</span>
+            <span class="tag accent">Evidence</span>
+            <span class="tag accent">Release Gate</span>
+          </div>
+          <p class="subtitle" style="margin-top:48px">XClarity One is the first landing scenario. The same controls reuse across xCloud, Token Hub, Enterprise Agent, and AI Ops.</p>
+        </div>
+        <div class="page-num">06 / 20</div>
+      </section>
+
+      <!-- S07 Control Plane First -->
+      <section class="slide" data-slide="7">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Design Principle</div>
+          <h2>Control Plane First</h2>
+          <div class="flow">
+            <div class="flow-step"><span class="num">01</span> Context</div>
+            <div class="flow-step"><span class="num">02</span> Signals (parallel detectors)</div>
+            <div class="flow-step"><span class="num">03</span> Policy Runtime</div>
+            <div class="flow-step"><span class="num">04</span> Decision Engine</div>
+            <div class="flow-step"><span class="num">05</span> Enforcement → Trace → Evaluation → Release Gate</div>
+          </div>
+          <p class="subtitle" style="margin-top:36px;font-size:28px">No scattered if/else in business code. One pipeline for every AI security judgment.</p>
+        </div>
+        <div class="page-num">07 / 20</div>
+      </section>
+
+      <!-- S08 Detector Does Not Decide -->
+      <section class="slide" data-slide="8">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Design Principle</div>
+          <h2>Detector does not decide</h2>
+          <div class="two-col">
+            <div class="panel">
+              <h3>Detectors produce signals</h3>
+              <ul>
+                <li>PII detector</li>
+                <li>Prompt injection detector</li>
+                <li>Confidential data detector</li>
+                <li>Tool risk evaluator</li>
+                <li>RAG source trust check</li>
+              </ul>
+            </div>
+            <div class="panel" style="border-color:rgba(0,212,170,0.3)">
+              <h3>Decision engine synthesizes</h3>
+              <ul>
+                <li>Signal normalization</li>
+                <li>Multi-signal fusion</li>
+                <li>Policy rule matching</li>
+                <li>Action state machine</li>
+                <li>Reason codes + evidence</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="page-num">08 / 20</div>
+      </section>
+
+      <!-- S09 Architecture -->
+      <section class="slide" data-slide="9">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Architecture</div>
+          <h2>Eight core layers</h2>
+          <svg viewBox="0 0 1720 520" style="width:100%;height:420px;margin-top:20px" aria-label="Eight layer architecture diagram">
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#00d4aa"/><stop offset="100%" stop-color="#0088cc"/></linearGradient>
+            </defs>
+            <rect x="20" y="20" width="1680" height="56" rx="8" fill="rgba(0,212,170,0.12)" stroke="#00d4aa" stroke-width="1.5"/>
+            <text x="860" y="55" text-anchor="middle" fill="#e8edf5" font-family="IBM Plex Sans" font-size="20">Enterprise Request Layer</text>
+            <rect x="20" y="90" width="1680" height="56" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)"/>
+            <text x="860" y="125" text-anchor="middle" fill="#8b9bb8" font-family="IBM Plex Sans" font-size="18">Context Builder → Orchestrator → Parallel Detectors</text>
+            <rect x="20" y="160" width="820" height="56" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)"/>
+            <text x="430" y="195" text-anchor="middle" fill="#8b9bb8" font-family="IBM Plex Sans" font-size="18">Signal Normalization & Fusion</text>
+            <rect x="860" y="160" width="840" height="56" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)"/>
+            <text x="1280" y="195" text-anchor="middle" fill="#8b9bb8" font-family="IBM Plex Sans" font-size="18">Policy Runtime</text>
+            <rect x="20" y="230" width="1680" height="56" rx="8" fill="url(#g1)" opacity="0.25" stroke="#00d4aa"/>
+            <text x="860" y="265" text-anchor="middle" fill="#e8edf5" font-family="IBM Plex Sans" font-size="20" font-weight="600">Decision Engine → Enforcement</text>
+            <rect x="20" y="300" width="1680" height="56" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.12)"/>
+            <text x="860" y="335" text-anchor="middle" fill="#8b9bb8" font-family="IBM Plex Sans" font-size="18">Model Runtime / Tool Runtime / Output Guardrail</text>
+            <rect x="20" y="370" width="1680" height="56" rx="8" fill="rgba(255,176,32,0.1)" stroke="#ffb020"/>
+            <text x="860" y="405" text-anchor="middle" fill="#ffb020" font-family="IBM Plex Sans" font-size="18">Trace + Evidence → Evaluation → Release Gate → Feedback</text>
+            <line x1="860" y1="76" x2="860" y2="90" stroke="#00d4aa" stroke-width="2"/>
+            <line x1="860" y1="146" x2="860" y2="160" stroke="#8b9bb8" stroke-width="1.5"/>
+            <line x1="860" y1="216" x2="860" y2="230" stroke="#00d4aa" stroke-width="2"/>
+            <line x1="860" y1="286" x2="860" y2="300" stroke="#8b9bb8" stroke-width="1.5"/>
+            <line x1="860" y1="356" x2="860" y2="370" stroke="#ffb020" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="page-num">09 / 20</div>
+      </section>
+
+      <!-- S10 Runtime Flow -->
+      <section class="slide" data-slide="10">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Runtime Flow</div>
+          <h2>Every request follows the same path</h2>
+          <p class="mono" style="margin-top:24px;font-size:22px;line-height:1.8">
+            User/App → Ingress Gateway → Context Builder → Orchestrator →<br>
+            Parallel Detectors → Signal Fusion → Policy Runtime → Decision Engine →<br>
+            Enforcement → Response → Trace + Evidence → Eval → Release Gate
+          </p>
+          <ul class="bullets" style="margin-top:40px">
+            <li>Context-aware: same prompt, different risk by tenant / role / data class</li>
+            <li>Contract-based: every decision carries reason_code + matched_rules</li>
+          </ul>
+        </div>
+        <div class="page-num">10 / 20</div>
+      </section>
+
+      <!-- S11 Stage Enum -->
+      <section class="slide" data-slide="11">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Canonical Contract</div>
+          <h2>One field for runtime stage: <span style="color:var(--accent)">stage</span></h2>
+          <p class="subtitle" style="margin-bottom:32px"><code style="color:var(--warn)">request_type</code> is deprecated — never use for policy, trace, or eval matching.</p>
+          <div class="tag-row">
+            <span class="tag">input_precheck</span>
+            <span class="tag">rag_query_precheck</span>
+            <span class="tag">rag_retrieved_context_check</span>
+            <span class="tag">tool_pre_execution</span>
+            <span class="tag accent">tool_post_execution</span>
+            <span class="tag">agent_plan_check</span>
+            <span class="tag">agent_step_check</span>
+            <span class="tag">model_output_check</span>
+            <span class="tag">batch_eval</span>
+          </div>
+          <p class="subtitle" style="margin-top:40px;font-size:28px">CI schema tests fail on any non-enum stage value.</p>
+        </div>
+        <div class="page-num">11 / 20</div>
+      </section>
+
+      <!-- S12 Action State Machine -->
+      <section class="slide" data-slide="12">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Decision Contract</div>
+          <h2>Actions are a state machine — not a priority list</h2>
+          <div class="two-col" style="height:auto">
+            <div>
+              <div class="tag-row" style="margin-top:0">
+                <span class="tag accent">allow</span>
+                <span class="tag accent">block</span>
+                <span class="tag accent">safe_complete</span>
+              </div>
+              <p class="mono" style="margin:20px 0 12px">terminal_actions</p>
+              <div class="tag-row">
+                <span class="tag">redact</span>
+                <span class="tag">rewrite</span>
+                <span class="tag">remove_chunk</span>
+                <span class="tag">reduce_rank</span>
+              </div>
+              <p class="mono" style="margin:20px 0 12px">transform_actions</p>
+              <div class="tag-row">
+                <span class="tag warn">require_approval</span>
+                <span class="tag warn">escalate</span>
+                <span class="tag">warn</span>
+                <span class="tag">log_only</span>
+              </div>
+              <p class="mono" style="margin:20px 0 0">human_or_async + observability</p>
+            </div>
+            <div class="panel">
+              <h3>Stage × Action Matrix</h3>
+              <ul>
+                <li>Not every action is valid at every stage</li>
+                <li><code>require_approval</code> is pending — not terminal</li>
+                <li>Disruptive ops need <code>explicit_user_confirmation</code></li>
+                <li>Must carry approval_ticket_id or workflow_ref</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="page-num">12 / 20</div>
+      </section>
+
+      <!-- S13 Risk Families -->
+      <section class="slide" data-slide="13">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Risk Taxonomy</div>
+          <h2>16 risk families — one new in V1.2</h2>
+          <div class="tag-row" style="margin-top:32px">
+            <span class="tag">PROMPT_INJECTION</span>
+            <span class="tag">RAG_INJECTION</span>
+            <span class="tag">PII_LEAKAGE</span>
+            <span class="tag">TOOL_ABUSE</span>
+            <span class="tag">UNAUTHORIZED_ACCESS</span>
+            <span class="tag">UNSAFE_AUTOMATION</span>
+            <span class="tag">OUTPUT_UNSAFE_CONTENT</span>
+            <span class="tag">EVIDENCE_GAP</span>
+            <span class="tag warn accent">TRANSPORT_TRUST_RISK</span>
+          </div>
+          <p class="subtitle" style="margin-top:40px">MCP / certificate / confirmation risks extend at <strong style="color:var(--accent)">risk_type</strong> layer — keeping the top-level enum stable.</p>
+          <div class="tag-row">
+            <span class="tag">Severity: none → low → medium → high → critical</span>
+          </div>
+        </div>
+        <div class="page-num">13 / 20</div>
+      </section>
+
+      <!-- S14 MCP Boundary -->
+      <section class="slide" data-slide="14">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">MCP Boundary</div>
+          <h2>MCP is an AI-mediated execution boundary</h2>
+          <ul class="bullets">
+            <li>Natural language → API call translation introduces new attack surface</li>
+            <li>Same API operation, different risk by user / tenant / scope</li>
+            <li>All tool-mediated ops must pass through control plane at <strong>tool_pre_execution</strong></li>
+            <li>Generic API wrapper tools default <strong style="color:var(--danger)">block</strong> unless policy explicitly allows</li>
+          </ul>
+        </div>
+        <div class="page-num">14 / 20</div>
+      </section>
+
+      <!-- S15 Trust Chain -->
+      <section class="slide" data-slide="15">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Identity Chain</div>
+          <h2>Tool-to-API Trust Chain Context</h2>
+          <svg viewBox="0 0 1720 200" style="width:100%;height:160px;margin:40px 0" aria-label="Trust chain flow">
+            <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#00d4aa"/></marker></defs>
+            <g font-family="JetBrains Mono" font-size="16" fill="#e8edf5">
+              <rect x="10" y="70" width="140" height="60" rx="8" fill="rgba(0,212,170,0.15)" stroke="#00d4aa"/><text x="80" y="105" text-anchor="middle">User</text>
+              <rect x="190" y="70" width="160" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)"/><text x="270" y="105" text-anchor="middle">MCP Client</text>
+              <rect x="390" y="70" width="160" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)"/><text x="470" y="105" text-anchor="middle">MCP Server</text>
+              <rect x="590" y="70" width="100" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)"/><text x="640" y="105" text-anchor="middle">Tool</text>
+              <rect x="730" y="70" width="180" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)"/><text x="820" y="105" text-anchor="middle">Northbound API</text>
+              <rect x="950" y="70" width="130" height="60" rx="8" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.15)"/><text x="1015" y="105" text-anchor="middle">Resource</text>
+              <rect x="1110" y="70" width="110" height="60" rx="8" fill="rgba(255,176,32,0.15)" stroke="#ffb020"/><text x="1165" y="105" text-anchor="middle">Action</text>
+            </g>
+            <line x1="150" y1="100" x2="190" y2="100" stroke="#00d4aa" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="350" y1="100" x2="390" y2="100" stroke="#00d4aa" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="550" y1="100" x2="590" y2="100" stroke="#00d4aa" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="690" y1="100" x2="730" y2="100" stroke="#00d4aa" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="910" y1="100" x2="950" y2="100" stroke="#00d4aa" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="1080" y1="100" x2="1110" y2="100" stroke="#ffb020" stroke-width="2" marker-end="url(#arrow)"/>
+          </svg>
+          <ul class="bullets">
+            <li>Bind identity at every hop — no anonymous tool execution</li>
+            <li>Validate arguments against schema + resource scope</li>
+          </ul>
+        </div>
+        <div class="page-num">15 / 20</div>
+      </section>
+
+      <!-- S16 Instruction/Data Separation -->
+      <section class="slide" data-slide="16">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Design Principle</div>
+          <h2>Instruction / Data Separation</h2>
+          <div class="two-col">
+            <div class="panel" style="border-color:rgba(255,92,106,0.3)">
+              <h3 style="color:var(--danger)">Untrusted Data</h3>
+              <ul>
+                <li>User prompts</li>
+                <li>RAG retrieved chunks</li>
+                <li>External web content</li>
+                <li>Tool output from third parties</li>
+              </ul>
+            </div>
+            <div class="panel" style="border-color:rgba(0,212,170,0.3)">
+              <h3>Trusted Instructions</h3>
+              <ul>
+                <li>System prompts (signed, versioned)</li>
+                <li>Policy rules (immutable snapshot)</li>
+                <li>Approved tool schemas</li>
+                <li>Explicit user confirmations</li>
+              </ul>
+            </div>
+          </div>
+          <p class="subtitle" style="margin-top:32px;font-size:28px">External content must never become executable instructions in the agent loop.</p>
+        </div>
+        <div class="page-num">16 / 20</div>
+      </section>
+
+      <!-- S17 Enforcement Points -->
+      <section class="slide" data-slide="17">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Enforcement</div>
+          <h2>Four enforcement surfaces</h2>
+          <div class="two-col" style="grid-template-columns:1fr 1fr;gap:40px">
+            <div class="panel"><h3>Input</h3><ul><li>Prompt injection detection</li><li>PII pre-scan</li><li>Policy profile binding</li></ul></div>
+            <div class="panel"><h3>RAG</h3><ul><li>Chunk security contract</li><li>Source trust scoring</li><li>remove_chunk / reduce_rank</li></ul></div>
+            <div class="panel" style="border-color:rgba(255,176,32,0.3)"><h3 style="color:var(--warn)">Tool Pre-Exec</h3><ul><li>Argument validation</li><li>Risk schema + approval</li><li>Transport trust check</li></ul></div>
+            <div class="panel"><h3>Output</h3><ul><li>Leakage detection</li><li>Redact / rewrite / block</li><li>Structured redaction output</li></ul></div>
+          </div>
+        </div>
+        <div class="page-num">17 / 20</div>
+      </section>
+
+      <!-- S18 Policy & Gate -->
+      <section class="slide" data-slide="18">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Governance</div>
+          <h2>Policy DSL v0.1 + Release Gate</h2>
+          <ul class="bullets">
+            <li><strong>Policy DSL</strong> — formal syntax with validate / lint / diff in CI</li>
+            <li><strong>Immutable snapshots</strong> — every decision binds policy_snapshot_id</li>
+            <li><strong>Release Gate</strong> — blocks detector / policy / schema deploys on metric regression</li>
+            <li><strong>Dry-run</strong> — simulate new policies against historical traces before go-live</li>
+          </ul>
+          <div class="tag-row" style="margin-top:32px">
+            <span class="tag">monitor</span>
+            <span class="tag">shadow</span>
+            <span class="tag accent">active</span>
+            <span class="tag warn">canary</span>
+          </div>
+        </div>
+        <div class="page-num">18 / 20</div>
+      </section>
+
+      <!-- S19 Trace -->
+      <section class="slide" data-slide="19">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Evidence</div>
+          <h2>Two-phase trace: sync commit + async enrichment</h2>
+          <div class="two-col">
+            <div class="panel" style="border-color:rgba(0,212,170,0.3)">
+              <h3>Minimal Sync Commit</h3>
+              <ul>
+                <li>trace_id on every decision — no exceptions</li>
+                <li>reason_code on every non-allow</li>
+                <li>policy_snapshot_id + stage + action</li>
+                <li>Blocks "decision without trace" contradiction</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h3>Async Evidence</h3>
+              <ul>
+                <li>Full detector outputs</li>
+                <li>Matched rules detail</li>
+                <li>Redaction diffs</li>
+                <li>Replay + audit + compliance</li>
+              </ul>
+            </div>
+          </div>
+          <p class="mono" style="margin-top:32px">Replay key: content hash + context hash + detector versions + policy snapshot + engine versions</p>
+        </div>
+        <div class="page-num">19 / 20</div>
+      </section>
+
+      <!-- S20 Roadmap -->
+      <section class="slide" data-slide="20">
+        <div class="grid-bg"></div>
+        <div class="slide-inner">
+          <div class="eyebrow">Implementation Plan</div>
+          <h2>Phased delivery — P0 to P3</h2>
+          <div class="roadmap">
+            <div class="phase">
+              <div class="label">P0</div>
+              <div class="title">Vertical Slice</div>
+              <ul>
+                <li>input_precheck</li>
+                <li>model_output_check</li>
+                <li>PII + injection</li>
+                <li>Replay CLI</li>
+              </ul>
+            </div>
+            <div class="phase">
+              <div class="label">P1</div>
+              <div class="title">Policy Hardening</div>
+              <ul>
+                <li>Policy DSL</li>
+                <li>Evidence service</li>
+                <li>Release gate basic</li>
+              </ul>
+            </div>
+            <div class="phase highlight">
+              <div class="label" style="color:var(--warn)">P1.5</div>
+              <div class="title">MCP / Tool Slice</div>
+              <ul>
+                <li>tool_pre_execution</li>
+                <li>Trust chain</li>
+                <li>Explicit confirm</li>
+                <li>Transport trust</li>
+              </ul>
+            </div>
+            <div class="phase">
+              <div class="label">P2</div>
+              <div class="title">RAG + Agent</div>
+              <ul>
+                <li>RAG injection</li>
+                <li>Agent step check</li>
+                <li>Canary release</li>
+              </ul>
+            </div>
+            <div class="phase">
+              <div class="label">P3</div>
+              <div class="title">Production Loop</div>
+              <ul>
+                <li>Online sampling</li>
+                <li>Auto rollback</li>
+                <li>Multi-region</li>
+              </ul>
+            </div>
+          </div>
+          <p class="subtitle" style="margin-top:36px;font-size:28px">Start with P0 closed loop. Ship P1.5 for MCP integrations before full agent security.</p>
+        </div>
+        <div class="page-num">20 / 20</div>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="deck-controls">
+    <button id="prev" aria-label="Previous slide">← Prev</button>
+    <span id="counter">1 / 20</span>
+    <button id="next" aria-label="Next slide">Next →</button>
+    <button id="presenter" aria-label="Presenter mode">Presenter (S)</button>
+  </div>
+
+  <script>
+    (function () {
+      const stage = document.getElementById('stage');
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const counter = document.getElementById('counter');
+      let current = 0;
+
+      function fitStage() {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const scale = Math.min(vw / 1920, vh / 1080);
+        const tx = (vw - 1920 * scale) / 2;
+        const ty = (vh - 1080 * scale) / 2;
+        stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      }
+
+      function show(index) {
+        current = Math.max(0, Math.min(index, slides.length - 1));
+        slides.forEach((s, i) => s.classList.toggle('active', i === current));
+        counter.textContent = `${current + 1} / ${slides.length}`;
+      }
+
+      document.getElementById('prev').addEventListener('click', () => show(current - 1));
+      document.getElementById('next').addEventListener('click', () => show(current + 1));
+      document.getElementById('presenter').addEventListener('click', openPresenter);
+
+      function openPresenter() {
+        const shell = '../outputs/presenter/presenter-shell.html';
+        window.open(shell, '_blank');
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); show(current + 1); }
+        if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(current - 1); }
+        if (e.key === 'Home') { e.preventDefault(); show(0); }
+        if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
+        if (e.key === 's' || e.key === 'S') openPresenter();
+      });
+
+      window.addEventListener('resize', fitStage);
+      fitStage();
+      show(0);
+    })();
+  </script>
+</body>
+</html>

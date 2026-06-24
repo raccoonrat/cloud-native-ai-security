@@ -1,0 +1,131 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-06-20T07:40:43+00:00",
+  "title": "Cloud Native Enterprise AI Security Control Plane",
+  "deck": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2/rendered/index.html",
+  "presenter_shell": "/home/mpcblock/lab/github.com/raccoonrat/cloud-native-ai-security/.humanize-ppt-runs/cloud-native-ai-security-v1.2/outputs/presenter/presenter-shell.html",
+  "slide_count": 20,
+  "notes": [
+    {
+      "slide_id": "S01",
+      "title": "Cloud Native Enterprise AI Security Control Plane",
+      "message": "Unified runtime security for Enterprise AI",
+      "script": "Hook: Enterprise AI moved from text generation to tool execution with side effects.\nUnified runtime security for Enterprise AI"
+    },
+    {
+      "slide_id": "S02",
+      "title": "The Shift",
+      "message": "From text generation to tool execution",
+      "script": "Tension: Northbound API security alone is not enough.\nFrom text generation to tool execution"
+    },
+    {
+      "slide_id": "S03",
+      "title": "Problem Space",
+      "message": "Ten risk categories — one control plane",
+      "script": "Establish runtime vs operational gaps.\nTen risk categories — one control plane"
+    },
+    {
+      "slide_id": "S04",
+      "title": "Scope",
+      "message": "A control plane — not a point detector",
+      "script": "Set boundaries: what this is and is not.\nA control plane — not a point detector"
+    },
+    {
+      "slide_id": "S05",
+      "title": "V1.2 Focus",
+      "message": "MCP / Tool-Calling Hardening",
+      "script": "Highlight trust chain, argument contracts, explicit confirmation.\nMCP / Tool-Calling Hardening"
+    },
+    {
+      "slide_id": "S06",
+      "title": "Eight Primitives",
+      "message": "Platform-wide, not product-local",
+      "script": "XClarity One is first landing; same controls reuse everywhere.\nPlatform-wide, not product-local"
+    },
+    {
+      "slide_id": "S07",
+      "title": "Control Plane First",
+      "message": "One pipeline for every judgment",
+      "script": "Context → Signals → Policy → Decision → Trace → Gate.\nOne pipeline for every judgment"
+    },
+    {
+      "slide_id": "S08",
+      "title": "Detector Does Not Decide",
+      "message": "Signals vs synthesis",
+      "script": "Detectors emit; decision engine chooses action.\nSignals vs synthesis"
+    },
+    {
+      "slide_id": "S09",
+      "title": "Architecture",
+      "message": "Eight core layers",
+      "script": "Request → Detection → Fusion → Policy → Decision → Trace.\nEight core layers"
+    },
+    {
+      "slide_id": "S10",
+      "title": "Runtime Flow",
+      "message": "Same path, context-aware",
+      "script": "Identical text, different decision by tenant/role/data class.\nSame path, context-aware"
+    },
+    {
+      "slide_id": "S11",
+      "title": "Canonical Stage Enum",
+      "message": "One field: stage",
+      "script": "request_type deprecated; CI fails on non-enum.\nOne field: stage"
+    },
+    {
+      "slide_id": "S12",
+      "title": "Action State Machine",
+      "message": "Semantics, not priority",
+      "script": "Terminal, transform, human-async; require_approval is pending.\nSemantics, not priority"
+    },
+    {
+      "slide_id": "S13",
+      "title": "Risk Families",
+      "message": "16 families + TRANSPORT_TRUST_RISK",
+      "script": "MCP risks extend at risk_type layer.\n16 families + TRANSPORT_TRUST_RISK"
+    },
+    {
+      "slide_id": "S14",
+      "title": "MCP Boundary",
+      "message": "AI-mediated execution boundary",
+      "script": "Not a thin API wrapper; default block generic wrappers.\nAI-mediated execution boundary"
+    },
+    {
+      "slide_id": "S15",
+      "title": "Trust Chain",
+      "message": "User → Client → Server → Tool → API → Resource",
+      "script": "Bind identity at every hop.\nUser → Client → Server → Tool → API → Resource"
+    },
+    {
+      "slide_id": "S16",
+      "title": "Instruction / Data Separation",
+      "message": "Untrusted data vs trusted instructions",
+      "script": "External content must never become executable.\nUntrusted data vs trusted instructions"
+    },
+    {
+      "slide_id": "S17",
+      "title": "Enforcement Points",
+      "message": "Input, RAG, Tool, Output",
+      "script": "Tool pre-exec highlighted for V1.2.\nInput, RAG, Tool, Output"
+    },
+    {
+      "slide_id": "S18",
+      "title": "Policy & Release Gate",
+      "message": "DSL v0.1 + immutable snapshots",
+      "script": "Gate blocks deploys on metric regression.\nDSL v0.1 + immutable snapshots"
+    },
+    {
+      "slide_id": "S19",
+      "title": "Trace & Evidence",
+      "message": "Sync commit + async enrichment",
+      "script": "trace_id on every decision; full replay key.\nSync commit + async enrichment"
+    },
+    {
+      "slide_id": "S20",
+      "title": "Implementation Roadmap",
+      "message": "P0 → P1 → P1.5 → P2 → P3",
+      "script": "Start P0 vertical slice; ship P1.5 for MCP first.\nP0 → P1 → P1.5 → P2 → P3"
+    }
+  ],
+  "standalone": false
+}
