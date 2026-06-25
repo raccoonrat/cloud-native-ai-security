@@ -17,6 +17,9 @@ diff, dry-run, replay regression, and a gate decision
 (`POST /v1/release-gates:evaluate`). It has **zero external dependencies** (Go
 stdlib only).
 
+See [CHANGELOG.md](CHANGELOG.md) for security-hardening fixes applied after the
+initial Sprint 1–6 slice (2026-06-25 review: P0 / P1 / P2).
+
 ## Layout
 
 ```
@@ -62,8 +65,8 @@ controlplane/
 ├── eval/                          Evaluation Harness (v1.6 §17)
 │   └── eval.go                    Case/Report/Run + per-stage/per-family cards
 ├── enforcement/                   mock Enforcement Adapter (v1.5 §12)
-├── sign/                          decision integrity signing (HMAC, v1.6 §5.4)
-├── idutil/                        prefixed id generation
+├── sign/                          decision integrity signing (HMAC + Ed25519, v1.6 §5.4)
+├── idutil/                        prefixed random + deterministic id generation
 ├── service/                       runtime decision MVP
 │   ├── service.go                 Evaluate(); AugmentJudge(); ReplayDecision(); EvaluateReleaseGate(); ActivateBundle()
 │   ├── registry.go                Detector Registry (INV-7)
@@ -73,7 +76,10 @@ controlplane/
 │   ├── replay_test.go            golden-replay reproduction + completeness
 │   ├── gate_test.go              release gate blocks breaking policy update
 │   ├── judge_test.go             provisional -> revised async judge flow (§6.2)
-│   └── activation_test.go        gate-guarded blue/green bundle activation
+│   ├── activation_test.go        gate-guarded blue/green bundle activation
+│   ├── p0_regression_test.go     security review P0 regressions
+│   ├── p1_regression_test.go     security review P1 regressions
+│   └── p2_regression_test.go     security review P2 regressions
 └── cmd/controlplane/main.go       HTTP server
 ```
 
@@ -87,6 +93,12 @@ curl -s -X POST localhost:8080/v1/decisions:evaluate \
   -H 'Content-Type: application/json' -d @example_request.json
 ```
 
+> **Tool pre-execution:** `POST /v1/decisions:evaluate` rejects
+> `stage=tool_pre_execution` with `422 tool_path_required`. Tool/MCP decisions
+> must go through the in-process `service.EvaluateToolAction` API (drift,
+> trust, TOCTOU approval re-validation). An HTTP route for the tool path is
+> planned for a later sprint.
+
 > Note: the v1.6 spec doc shows the Stage x Action Matrix in YAML for
 > readability; the canonical **machine** artifact in this module is
 > `contracts/stage_action_matrix.json` (so the loader stays stdlib-only). The
@@ -99,7 +111,27 @@ cd controlplane
 go build ./...
 go vet ./...
 go test ./...
+go test -race ./...   # recommended after concurrent / activation changes
 ```
+
+## Security hardening (2026-06-25)
+
+Post–Sprint-6 fixes from a full architecture / security review. Details in
+[CHANGELOG.md](CHANGELOG.md).
+
+| Area | Fix |
+| ---- | --- |
+| **Fail-closed** | Output-stage no-match → `block` (not invalid `deny`) |
+| **Tool bypass** | Generic evaluate route rejects tool stage / `tool_action` |
+| **Signal TTL** | Live fusion pins eval time; replay snapshots carry `eval_time` |
+| **Concurrency** | `activeBundle()` / `bundleForVersion()` — no bundle read races |
+| **MODE-B** | `CanonicalSignalHash` binds signature to signal payload |
+| **Replay** | Replays use pinned `bundle_version`, not active bundle |
+| **Determinism** | `idutil.Derive` for synthetic/tool signal IDs → stable decision hash |
+| **Release gate** | Drift vs correctness split; `MaxFalseNegativeRate`; optional `LabeledCorpus` |
+| **Evidence** | Commit only after idempotency win; replay reports real commit status |
+| **Policy** | `drifted_tool_policy`; review-queue tie keeps highest priority |
+| **Signing** | Optional `Ed25519Signer` / `Ed25519Verifier` (default remains HMAC) |
 
 ## What is implemented
 
@@ -111,7 +143,8 @@ go test ./...
   aggregation. Proven order-independent (`TestTV6_OrderIndependence`).
 - **Deterministic Policy Resolution** (`policy.Resolve`): action strength order +
   constraint union, "combine" semantics, terminal-stop suppression,
-  redaction-tie escalation, fail-closed defaults.
+  redaction-tie escalation, **stage-aware** fail-closed defaults (`output` →
+  `block`, other stages → `deny`).
 - **JSON Schemas** for Context / Signal / Decision (INV-7 + §6.2 fields).
 
 ### Sprint 2 — Runtime Decision MVP
@@ -123,8 +156,9 @@ go test ./...
 - **First-write-wins idempotency** keyed by `(trace_id, request_id, stage)` (§5.3).
 - **Policy evaluator v0** (`policy.Bundle.Match`) + MVP bundle covering all
   three golden scenarios.
-- **Decision Contract** built, hashed, and HMAC-signed (`decision.Build`); §11.2
-  correctness validated (`decision.Validate`).
+- **Decision Contract** built, hashed, and signed (`decision.Build` — default
+  HMAC; optional Ed25519 via `sign.Ed25519Signer`); §11.2 correctness validated
+  (`decision.Validate`).
 - **Minimal synchronous evidence commit** (`evidence.MemStore`, §13.3).
 - **Mock Enforcement Adapter** (`enforcement.MockAdapter`): verifies signature
   (INV-3 extended), validates against the matrix, executes the action; gates
@@ -150,9 +184,10 @@ go test ./...
   (content spans, enforcement result) post-decision (§13.4).
 - **Decision-level Replay-lite** (`replay.Run`, `service.ReplayDecision`,
   `POST /v1/replay:decision`, §14): re-runs fusion + policy from the pinned
-  context/signal snapshot and returns a `match` / `partial` / `mismatch` verdict
-  with a diff. Replaying with the same pinned versions reproduces the original
-  action for every golden scenario (deterministic by §3/§4).
+  context/signal snapshot (**`eval_time`**, **`bundle_version`**) and returns a
+  `match` / `partial` / `mismatch` verdict with a diff. Replaying with the same
+  pinned versions reproduces the original action for every golden scenario
+  (deterministic by §3/§4).
 - **Evaluation Harness** (`eval.Run` → `eval.Report`, §17): scores **control**
   effectiveness — `action_correctness`, `reason_correctness`,
   `evidence_completeness`, `replay_consistency`, false-positive / false-negative
@@ -203,6 +238,7 @@ go test ./...
 | 3 + valid approval | tool_pre_execution | `allow` |
 | 3 + schema drift after approval | tool_pre_execution | `require_confirmation` (approval invalidated) |
 | 3 + tampered target (TOCTOU) | tool_pre_execution | not `allow` |
+| Drifted tool (metadata changed) | tool_pre_execution | `require_confirmation` |
 | Revoked tool | tool_pre_execution | `deny` |
 | Unknown elevated tool | tool_pre_execution | `deny` |
 | Unknown read tool | tool_pre_execution | `require_review` |
@@ -214,10 +250,13 @@ go test ./...
 - Evidence encryption + tenant isolation / durable evidence store (current store
   is in-memory; completeness scoring + enrichment are implemented).
 - Durable persistence for decisions / replay+gate corpora / effective-decision
-  and bundle-history maps (all currently in-memory).
-- HTTP route for `EvaluateToolAction` (currently the in-process API; the
-  `/v1/decisions:evaluate` handler covers the non-tool path).
+  and bundle-history maps (bundle versions are retained in-memory per activation;
+  durable store still pending).
+- HTTP route for `EvaluateToolAction` (in-process API only; generic
+  `/v1/decisions:evaluate` **rejects** `tool_pre_execution` — see Run the server).
 - JSON Schema runtime validation wiring (schemas embedded; validator pending).
+- Default deployment wiring for Ed25519 signing (implementation available in
+  `sign`; `NewDefault` still uses HMAC for the MVP).
 
 ## Design guarantees
 
@@ -244,3 +283,14 @@ go test ./...
 | Canary-only / rollback-required outcomes (§18.2) | `gate.Decide` | `TestGate_CanaryOnlyOnDrift`, `TestGate_RollbackRequiredOnSevereRegression` |
 | Sync path never blocks on judge; provisional→revised (§6) | `service.AugmentJudge` | `TestJudge_ProvisionalThenRevised`, `TestJudge_PresentSignalIsFinal` |
 | Gate-guarded blue/green activation + rollback (decision #9) | `service.ActivateBundle` / `RollbackBundle` | `TestActivation_*` |
+| Output fail-closed is `block` (not invalid `deny`) | `policy.defaultDecision` | `TestDefaultDecisionFailClosed`, `TestP0_OutputFailClosedIsBlockNotError` |
+| Tool stage rejected on generic HTTP path | `service/http.go` | `TestP0_ToolStageRejectedOnGenericPath` |
+| Signal TTL enforced + replayable | `fusion.Config.Now` / `replay.Inputs.EvalTime` | `TestP0_ExpiredSignalDroppedAndReplayable` |
+| Bundle read race-free under activation | `service.activeBundle` | `TestP0_ConcurrentEvaluateAndActivateNoRace` |
+| MODE-B signature binds payload | `model.CanonicalSignalHash` | `TestP1_ModeBSignatureBindsPayload` |
+| Replay uses pinned bundle version | `service.bundleForVersion` | `TestP1_ReplayUsesPinnedBundleVersion` |
+| Deterministic decision hash | `idutil.Derive` | `TestP1_DeterministicDecisionHash` |
+| Gate does not penalize strengthening | `gate.Evaluate` / `LabeledCorpus` | `TestP1_GateDoesNotPenalizeStrengthening` |
+| Idempotent replay evidence status | `service.evidenceStatus` | `TestP2_IdempotentReplayReportsRealStatus` |
+| Drifted tool requires confirmation | `drifted_tool_policy` | `TestP2_DriftedToolRequiresConfirmation` |
+| Ed25519 verify-only enforcement boundary | `sign.Ed25519Verifier` | `TestEd25519SignVerify` |
