@@ -126,10 +126,11 @@ func Adapt(ctx model.Context, ac ActionContext, reg Registry) (model.ToolCtx, []
 		PermissionClass: ac.PermissionClass,
 	}
 
+	disc := ac.ToolID + "@" + ac.ServerID
 	snap, ok := reg.Lookup(ac.ToolID, ac.ServerID)
 	if !ok {
 		tc.TrustState = model.TrustUnknown
-		return tc, []model.Signal{toolSignal(ctx, "registry_miss", model.SourceRegistry, model.SeverityMedium)}, false
+		return tc, []model.Signal{toolSignal(ctx, "registry_miss", model.SourceRegistry, model.SeverityMedium, disc)}, false
 	}
 
 	drift := DetectDrift(ac, snap)
@@ -140,21 +141,25 @@ func Adapt(ctx model.Context, ac ActionContext, reg Registry) (model.ToolCtx, []
 
 	var sigs []model.Signal
 	if drift.SchemaDrift {
-		sigs = append(sigs, toolSignal(ctx, "tool_schema_drift", model.SourceSchema, model.SeverityHigh))
+		sigs = append(sigs, toolSignal(ctx, "tool_schema_drift", model.SourceSchema, model.SeverityHigh, disc))
 	}
 	if drift.ManifestDrift {
-		sigs = append(sigs, toolSignal(ctx, "tool_manifest_drift", model.SourceSchema, model.SeverityHigh))
+		sigs = append(sigs, toolSignal(ctx, "tool_manifest_drift", model.SourceSchema, model.SeverityHigh, disc))
 	}
 	if snap.TrustState == model.TrustRevoked {
-		sigs = append(sigs, toolSignal(ctx, "unauthorized_action", model.SourceRegistry, model.SeverityCritical))
+		sigs = append(sigs, toolSignal(ctx, "unauthorized_action", model.SourceRegistry, model.SeverityCritical, disc))
 	}
 	return tc, sigs, true
 }
 
-func toolSignal(ctx model.Context, typ string, src model.SourceType, sev model.Severity) model.Signal {
+// toolSignal builds a control-plane tool signal with a deterministic id derived
+// from (stage, type, source, tool identity) so identical inputs replay identically.
+func toolSignal(ctx model.Context, typ string, src model.SourceType, sev model.Severity, disc string) model.Signal {
 	return model.Signal{
-		SchemaVersion: "1.6", SignalID: idutil.New("sig-tool"), TraceID: ctx.TraceID,
-		ContextID: ctx.ContextID, Stage: ctx.Stage, SignalType: typ,
+		SchemaVersion: "1.6",
+		SignalID:      idutil.Derive("sig-tool", string(ctx.Stage), typ, string(src), disc),
+		TraceID:       ctx.TraceID,
+		ContextID:     ctx.ContextID, Stage: ctx.Stage, SignalType: typ,
 		RiskFamily: model.RiskSEC, Severity: sev, Confidence: 1.0,
 		Source: model.SignalSource{SourceID: "tool-security", SourceType: src, SourceVersion: "1.6"},
 	}

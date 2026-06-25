@@ -1,6 +1,9 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"sort"
 	"time"
 )
@@ -119,6 +122,38 @@ type SignalIntegrity struct {
 	Signature        string `json:"signature,omitempty"`
 	KeyID            string `json:"key_id,omitempty"`
 	SignedPayloadHash string `json:"signed_payload_hash,omitempty"`
+}
+
+// CanonicalSignalHash is the content hash a MODE-B signer MUST sign (INV-7).
+// It covers every security-relevant field EXCEPT the Integrity block itself, so
+// the signature binds the signal payload: a valid (hash, signature) pair cannot
+// be replayed onto a signal with a different severity/type/source/etc.
+func CanonicalSignalHash(s Signal) string {
+	core := struct {
+		SchemaVersion string       `json:"schema_version"`
+		SignalID      string       `json:"signal_id"`
+		TraceID       string       `json:"trace_id"`
+		ContextID     string       `json:"context_id"`
+		Stage         Stage        `json:"stage"`
+		SignalType    string       `json:"signal_type"`
+		RiskFamily    RiskFamily   `json:"risk_family"`
+		Severity      Severity     `json:"severity"`
+		Confidence    float64      `json:"confidence"`
+		CreatedAt     time.Time    `json:"created_at"`
+		TTLMs         int64        `json:"ttl_ms"`
+		Source        SignalSource `json:"source"`
+		Attributes    SignalAttrs  `json:"attributes"`
+		EvidenceRef   string       `json:"evidence_ref"`
+	}{
+		SchemaVersion: s.SchemaVersion, SignalID: s.SignalID, TraceID: s.TraceID,
+		ContextID: s.ContextID, Stage: s.Stage, SignalType: s.SignalType,
+		RiskFamily: s.RiskFamily, Severity: s.Severity, Confidence: s.Confidence,
+		CreatedAt: s.CreatedAt.UTC(), TTLMs: s.TTLMs, Source: s.Source,
+		Attributes: s.Attributes, EvidenceRef: s.EvidenceRef,
+	}
+	b, _ := json.Marshal(core)
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // IsExpired reports whether the signal TTL has elapsed relative to now.

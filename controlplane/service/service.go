@@ -74,6 +74,7 @@ type Service struct {
 	snapshots  map[string]replay.Inputs     // decision_id -> replay snapshot (§14)
 	effective  map[string]decision.Contract // trace|stage -> latest non-superseded decision (§6.2)
 	prevBundle *policy.Bundle               // previous active bundle for blue/green rollback (§decision-9)
+	bundles    map[string]policy.Bundle     // version -> immutable bundle, for version-pinned replay (§14)
 }
 
 // New builds a Service with sensible MVP defaults for any nil dependency.
@@ -95,6 +96,7 @@ func New(m *matrix.Matrix, bundle policy.Bundle, reg DetectorRegistry, ev eviden
 		store:     map[string]decision.Contract{},
 		snapshots: map[string]replay.Inputs{},
 		effective: map[string]decision.Contract{},
+		bundles:   map[string]policy.Bundle{bundle.Version: bundle},
 	}
 }
 
@@ -253,14 +255,15 @@ func (s *Service) resolveApproval(ctx model.Context, ac tool.ActionContext, tool
 		return true, nil
 	}
 	toolCtx.HasPriorApproval = true
+	disc := ac.ToolID + "@" + ac.ServerID
 	var sigs []model.Signal
 	switch res.Reason {
 	case "schema_hash_changed":
-		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_schema_drift", model.SourceSchema, model.SeverityHigh))
+		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_schema_drift", model.SourceSchema, model.SeverityHigh, disc))
 	case "manifest_hash_changed":
-		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_manifest_drift", model.SourceSchema, model.SeverityHigh))
+		sigs = append(sigs, s.systemSignalTyped(ctx, "tool_manifest_drift", model.SourceSchema, model.SeverityHigh, disc))
 	case "parameters_hash_changed", "target_resource_changed", "destination_boundary_changed":
-		sigs = append(sigs, s.systemSignalTyped(ctx, "approval_stale", model.SourceSystem, model.SeverityHigh))
+		sigs = append(sigs, s.systemSignalTyped(ctx, "approval_stale", model.SourceSystem, model.SeverityHigh, disc))
 	}
 	return false, sigs
 }
@@ -340,6 +343,7 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 			OriginalAction:     winner.Decision.Action,
 			OriginalReason:     winner.Decision.ReasonCode,
 			EvalTime:           cfg.Now,
+			BundleVersion:      b.Version,
 		})
 		// Record as the latest non-superseded decision for (trace, stage) (§6.2).
 		s.putEffective(traceStageKey(ctx.TraceID, ctx.Stage), winner)
@@ -357,7 +361,7 @@ func (s *Service) ReplayDecision(decisionID string) (replay.Result, error) {
 	if !ok {
 		return replay.Result{}, fmt.Errorf("service: no replay snapshot for decision %q", decisionID)
 	}
-	return replay.Run(snap, s.activeBundle(), s.fusionCfg), nil
+	return replay.Run(snap, s.bundleForVersion(snap.BundleVersion), s.fusionCfg), nil
 }
 
 // ReleaseGateRequest evaluates a candidate policy bundle against the runtime's
@@ -372,22 +376,32 @@ type ReleaseGateRequest struct {
 	Artifacts                    gate.ArtifactRefs `json:"artifacts"`
 	ObservedEvidenceCompleteness float64           `json:"observed_evidence_completeness,omitempty"`
 	ObservedP95LatencyMs         int64             `json:"observed_p95_latency_ms,omitempty"`
+	// LabeledCorpus is an optional, independently-labeled offline corpus that
+	// drives action/reason correctness and FP/FN. The runtime's own decision
+	// snapshots are used only for replay-regression (drift), NOT as correctness
+	// labels, so a candidate that corrects incumbent behavior is not penalized.
+	LabeledCorpus []gate.Sample `json:"labeled_corpus,omitempty"`
 }
 
 // EvaluateReleaseGate runs the Release Gate for a candidate policy bundle,
 // producing a GateEvaluationRecord (INV-6: every release-gated change yields one).
 func (s *Service) EvaluateReleaseGate(req ReleaseGateRequest) gate.GateEvaluationRecord {
 	s.mu.Lock()
-	corpus := make([]gate.Sample, 0, len(s.snapshots))
+	corpus := make([]gate.Sample, 0, len(s.snapshots)+len(req.LabeledCorpus))
 	for _, snap := range s.snapshots {
+		// Historical snapshots are a REGRESSION corpus only: they carry the
+		// directional control-loss baseline (ShouldIntervene = incumbent enforced
+		// an active control) and drive behavior drift, but NOT correctness labels
+		// (no ExpectedAction), so strengthening/correcting the incumbent is not
+		// scored as "incorrect".
 		corpus = append(corpus, gate.Sample{
 			Inputs:               snap,
-			ExpectedAction:       snap.OriginalAction,
-			ExpectedReason:       snap.OriginalReason,
 			ShouldIntervene:      isActiveControl(snap.OriginalAction),
 			EvidenceCompleteness: req.ObservedEvidenceCompleteness,
 		})
 	}
+	// Independently-labeled offline cases (if any) drive correctness/FP/FN.
+	corpus = append(corpus, req.LabeledCorpus...)
 	current := s.bundle
 	cfg := s.fusionCfg
 	s.mu.Unlock()
@@ -423,6 +437,9 @@ func (s *Service) ActivateBundle(candidate policy.Bundle, rec gate.GateEvaluatio
 	prev := s.bundle
 	s.prevBundle = &prev
 	s.bundle = candidate
+	// Retain the activated bundle by version so decisions made under it remain
+	// replayable against that exact bundle after later activations (§14).
+	s.bundles[candidate.Version] = candidate
 	s.mu.Unlock()
 	return nil
 }
@@ -456,6 +473,20 @@ func (s *Service) ActiveBundleVersion() string {
 func (s *Service) activeBundle() policy.Bundle {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.bundle
+}
+
+// bundleForVersion returns the immutable bundle for a pinned version, falling
+// back to the active bundle when the version is empty/unknown. This lets replay
+// reconstruct a decision against the exact bundle it was made under (§14).
+func (s *Service) bundleForVersion(version string) policy.Bundle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if version != "" {
+		if b, ok := s.bundles[version]; ok {
+			return b
+		}
+	}
 	return s.bundle
 }
 
@@ -511,9 +542,9 @@ func (s *Service) AugmentJudge(traceID string, stage model.Stage, judge []model.
 	fuseInput = append(fuseInput, kept...)
 	fuseInput = append(fuseInput, synthetic...)
 
-	// Re-run the deterministic core over the pinned snapshot: same active bundle
-	// read under the lock, same evaluation instant (§6.2 / §14 determinism).
-	b := s.activeBundle()
+	// Re-run the deterministic core over the pinned snapshot: same bundle version
+	// the original used, same evaluation instant (§6.2 / §14 determinism).
+	b := s.bundleForVersion(snap.BundleVersion)
 	cfg := s.fusionCfg
 	cfg.Now = snap.EvalTime
 
@@ -547,7 +578,7 @@ func (s *Service) AugmentJudge(traceID string, stage model.Stage, judge []model.
 	s.putSnapshot(revised.DecisionID, replay.Inputs{
 		OriginalDecisionID: revised.DecisionID, Context: ctx, Signals: fuseInput, Mode: snap.Mode,
 		OriginalAction: revised.Decision.Action, OriginalReason: revised.Decision.ReasonCode,
-		EvalTime: snap.EvalTime,
+		EvalTime: snap.EvalTime, BundleVersion: b.Version,
 	})
 
 	changed := revised.Decision.Action != prev.Decision.Action
@@ -598,18 +629,25 @@ func (s *Service) verifyProvenance(ctx model.Context, sigs []model.Signal) (kept
 		entry, ok := s.registry.Lookup(sig.Source.SourceID)
 		if !ok {
 			dropped = append(dropped, model.DroppedSignal{SourceID: sig.Source.SourceID, SignalID: sig.SignalID, Reason: "registry_miss"})
-			synthetic = append(synthetic, s.systemSignal(ctx, "registry_miss", model.SeverityMedium))
+			synthetic = append(synthetic, s.systemSignal(ctx, "registry_miss", model.SeverityMedium, sig.Source.SourceID))
 			continue
 		}
 		if len(entry.Versions) > 0 && sig.Source.SourceVersion != "" && !entry.Versions[sig.Source.SourceVersion] {
 			dropped = append(dropped, model.DroppedSignal{SourceID: sig.Source.SourceID, SignalID: sig.SignalID, Reason: "registry_miss"})
-			synthetic = append(synthetic, s.systemSignal(ctx, "registry_miss", model.SeverityMedium))
+			synthetic = append(synthetic, s.systemSignal(ctx, "registry_miss", model.SeverityMedium, sig.Source.SourceID))
 			continue
 		}
 		if s.cfg.ProvenanceMode == model.ModeB {
-			if entry.Verifier == nil || !entry.Verifier.Verify(sig.Integrity.SignedPayloadHash, sig.Integrity.Signature) {
+			// INV-7: the signature MUST bind the signal payload. Recompute the
+			// canonical signal hash and require the signed hash to equal it
+			// before verifying the signature, otherwise a valid (hash,signature)
+			// pair could be replayed onto a tampered signal.
+			expect := model.CanonicalSignalHash(sig)
+			if entry.Verifier == nil ||
+				sig.Integrity.SignedPayloadHash != expect ||
+				!entry.Verifier.Verify(sig.Integrity.SignedPayloadHash, sig.Integrity.Signature) {
 				dropped = append(dropped, model.DroppedSignal{SourceID: sig.Source.SourceID, SignalID: sig.SignalID, Reason: "signature_invalid"})
-				synthetic = append(synthetic, s.systemSignal(ctx, "signal_integrity_violation", model.SeverityHigh))
+				synthetic = append(synthetic, s.systemSignal(ctx, "signal_integrity_violation", model.SeverityHigh, sig.Source.SourceID))
 				continue
 			}
 		}
@@ -618,14 +656,18 @@ func (s *Service) verifyProvenance(ctx model.Context, sigs []model.Signal) (kept
 	return kept, synthetic, dropped
 }
 
-func (s *Service) systemSignal(ctx model.Context, typ string, sev model.Severity) model.Signal {
-	return s.systemSignalTyped(ctx, typ, model.SourceSystem, sev)
+func (s *Service) systemSignal(ctx model.Context, typ string, sev model.Severity, disc string) model.Signal {
+	return s.systemSignalTyped(ctx, typ, model.SourceSystem, sev, disc)
 }
 
-func (s *Service) systemSignalTyped(ctx model.Context, typ string, src model.SourceType, sev model.Severity) model.Signal {
+// systemSignalTyped builds a control-plane synthetic signal. The signal id is
+// derived deterministically from (stage, type, source, discriminator) so that
+// identical logical inputs produce identical signal ids and therefore an
+// identical Decision Contract hash (Spec v1.6 §5.4 replayability).
+func (s *Service) systemSignalTyped(ctx model.Context, typ string, src model.SourceType, sev model.Severity, disc string) model.Signal {
 	return model.Signal{
 		SchemaVersion: "1.6",
-		SignalID:      idutil.New("sig-sys"),
+		SignalID:      idutil.Derive("sig-sys", string(ctx.Stage), typ, string(src), disc),
 		TraceID:       ctx.TraceID,
 		ContextID:     ctx.ContextID,
 		Stage:         ctx.Stage,

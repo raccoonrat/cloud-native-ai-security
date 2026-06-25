@@ -83,11 +83,16 @@ type GateEvaluationRecord struct {
 type Thresholds struct {
 	MinActionCorrectness    float64
 	MinEvidenceCompleteness float64
-	MinReplayConsistency    float64
 	MaxFalsePositiveRate    float64
-	MaxP95LatencyMs         int64
-	CanaryDrift             float64 // behavior drift at/above this -> canary_only
-	RollbackDrift           float64 // behavior drift at/above this -> rollback_required
+	// MaxFalseNegativeRate caps control loss: the fraction of regression-corpus
+	// samples where the incumbent enforced an active control but the candidate
+	// no longer does. Unlike action_correctness (which needs independent labels),
+	// this is a directional safety regression and applies even to unlabeled
+	// historical traffic. A candidate that drops controls is blocked.
+	MaxFalseNegativeRate float64
+	MaxP95LatencyMs      int64
+	CanaryDrift          float64 // behavior drift at/above this -> canary_only
+	RollbackDrift        float64 // behavior drift at/above this -> rollback_required
 }
 
 // DefaultThresholds returns conservative MVP gate criteria.
@@ -95,8 +100,8 @@ func DefaultThresholds() Thresholds {
 	return Thresholds{
 		MinActionCorrectness:    0.95,
 		MinEvidenceCompleteness: 0.90,
-		MinReplayConsistency:    0.99,
 		MaxFalsePositiveRate:    0.10,
+		MaxFalseNegativeRate:    0.05,
 		MaxP95LatencyMs:         300,
 		CanaryDrift:             0.20,
 		RollbackDrift:           0.50,
@@ -140,18 +145,26 @@ func Evaluate(req Request) GateEvaluationRecord {
 	diff := policy.Diff(req.CurrentBundle, req.CandidateBundle)
 
 	var (
-		total                                  = len(req.Corpus)
-		actionCorrect, reasonCorrect, reasonN  int
-		changed                                int // candidate differs from current bundle
-		fp, fn, posTotal, negTotal             int
-		completenessSum                        float64
+		total                                 = len(req.Corpus)
+		actionCorrect, actionLabeled          int
+		reasonCorrect, reasonN                int
+		changed                               int // candidate differs from current bundle
+		fp, fn, posTotal, negTotal            int
+		completenessSum                       float64
 	)
 	for _, s := range req.Corpus {
 		candAction, candReason := evalBundle(s.Inputs, req.CandidateBundle, req.FusionConfig)
 		curAction, _ := evalBundle(s.Inputs, req.CurrentBundle, req.FusionConfig)
 
-		if s.ExpectedAction != "" && candAction == s.ExpectedAction {
-			actionCorrect++
+		// Correctness is scored ONLY against independent labels; a sample without
+		// an ExpectedAction contributes to regression (drift/FN) but not to
+		// correctness, so a candidate that corrects/strengthens incumbent behavior
+		// is not penalized as "incorrect" for diverging from the incumbent.
+		if s.ExpectedAction != "" {
+			actionLabeled++
+			if candAction == s.ExpectedAction {
+				actionCorrect++
+			}
 		}
 		if s.ExpectedReason != "" {
 			reasonN++
@@ -166,7 +179,7 @@ func Evaluate(req Request) GateEvaluationRecord {
 		if s.ShouldIntervene {
 			posTotal++
 			if !intervened {
-				fn++
+				fn++ // control loss: incumbent intervened here, candidate does not.
 			}
 		} else {
 			negTotal++
@@ -178,15 +191,21 @@ func Evaluate(req Request) GateEvaluationRecord {
 	}
 
 	m := Metrics{}
+	// Action correctness is asserted only when independent labels exist; with no
+	// labels it is neutral (1.0) so the regression metrics (drift / FN) and the
+	// policy_diff_risk drive the decision instead.
+	if actionLabeled > 0 {
+		m.ActionCorrectness = ratio(actionCorrect, actionLabeled)
+	} else {
+		m.ActionCorrectness = 1
+	}
 	if total > 0 {
-		m.ActionCorrectness = ratio(actionCorrect, total)
 		m.BehaviorDrift = ratio(changed, total)
 		m.ReplayConsistency = 1 - m.BehaviorDrift
 		m.EvidenceCompleteness = completenessSum / float64(total)
 	} else {
 		// No regression corpus: no evidence of behavioral change, stay neutral and
 		// let policy_diff_risk drive the decision.
-		m.ActionCorrectness = 1
 		m.ReplayConsistency = 1
 		m.EvidenceCompleteness = 1
 	}
@@ -234,6 +253,9 @@ func Decide(m Metrics, diffRisk string, t Thresholds) (Decision, []string) {
 	}
 	if m.FalsePositiveRate > t.MaxFalsePositiveRate {
 		fail = append(fail, "false_positive_rate above ceiling")
+	}
+	if m.FalseNegativeRate > t.MaxFalseNegativeRate {
+		fail = append(fail, "false_negative_rate above ceiling (candidate drops an active control)")
 	}
 	if t.MaxP95LatencyMs > 0 && m.P95LatencyMs > t.MaxP95LatencyMs {
 		fail = append(fail, "p95_decision_latency_ms above ceiling")

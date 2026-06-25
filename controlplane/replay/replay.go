@@ -27,6 +27,10 @@ type Inputs struct {
 	// replay drops exactly the same expired signals (deterministic by §3/§14).
 	// Zero means "no expiry" (TTL evaluation disabled), preserving older inputs.
 	EvalTime time.Time
+	// BundleVersion pins the policy bundle version the original decision used so
+	// replay can reconstruct against that exact (immutable) bundle, not whatever
+	// bundle happens to be active now (Spec v1.6 §1.4, §14).
+	BundleVersion string
 }
 
 // Result is the replay outcome (§14.2).
