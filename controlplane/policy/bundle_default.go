@@ -117,6 +117,29 @@ func DefaultBundle() Bundle {
 				},
 			},
 			{
+				// Tool metadata drifted since review (schema/manifest/description
+				// changed) -> re-confirm before executing, in EVERY environment
+				// (not just where fail-closed would catch it). Same strength as the
+				// sensitive-external confirmation so it co-resolves cleanly (§15.5).
+				PolicyID: "drifted_tool_policy",
+				Version:  "1.0.0",
+				Status:   "prod",
+				Priority: 130,
+				Scope:    Scope{Stages: []model.Stage{model.StageToolPreExecution}, Environments: allEnv, AppIDs: []string{"*"}, TenantIDs: []string{"*"}},
+				Condition: Condition{
+					All: []Predicate{{Field: "tool.trust_state", Op: "eq", Value: []string{"drifted"}}},
+				},
+				RuleIDs: []string{"rule-drifted-reconfirm"},
+				Decision: PolicyDecision{
+					Action:     model.ActionRequireConfirmation,
+					ReasonCode: "tool_metadata_drift_reconfirm",
+					Constraints: Constraints{
+						ConfirmationRequired: true,
+						EvidenceRequired:     true, AuditRequired: true,
+					},
+				},
+			},
+			{
 				// Unknown tool with an elevated permission class -> deny (Spec v1.5 §20.4).
 				PolicyID: "unknown_tool_elevated_policy",
 				Version:  "1.0.0",

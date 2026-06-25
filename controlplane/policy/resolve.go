@@ -151,9 +151,14 @@ func mergeConstraints(acc *Constraints, in Constraints) bool {
 		}
 	}
 
-	if in.ReviewQueue != "" && in.ReviewQueueSeverity >= acc.ReviewQueueSeverity {
-		acc.ReviewQueue = in.ReviewQueue
-		acc.ReviewQueueSeverity = in.ReviewQueueSeverity
+	// Review queue: the first (highest-priority) policy to set a queue wins;
+	// a later policy only overrides on a STRICTLY higher severity. Using >=
+	// would let an equal-severity, lower-priority policy clobber it (P2-K).
+	if in.ReviewQueue != "" {
+		if acc.ReviewQueue == "" || in.ReviewQueueSeverity > acc.ReviewQueueSeverity {
+			acc.ReviewQueue = in.ReviewQueue
+			acc.ReviewQueueSeverity = in.ReviewQueueSeverity
+		}
 	}
 
 	// First policy (highest priority) that sets a template wins.

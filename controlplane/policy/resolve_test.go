@@ -158,6 +158,24 @@ func TestResolveOrderIndependence(t *testing.T) {
 	}
 }
 
+// P2-K: at an equal review-queue severity, the higher-priority policy's queue
+// must win and the result must be order-independent (no lower-priority clobber).
+func TestReviewQueueTieKeepsHighestPriority(t *testing.T) {
+	hi := MatchedPolicy{PolicyID: "hi", Priority: 30, Action: model.ActionRequireReview, ReasonCode: "rh",
+		Constraints: Constraints{ReviewQueue: "privacy", ReviewQueueSeverity: model.SeverityHigh}}
+	lo := MatchedPolicy{PolicyID: "lo", Priority: 10, Action: model.ActionRequireReview, ReasonCode: "rl",
+		Constraints: Constraints{ReviewQueue: "security", ReviewQueueSeverity: model.SeverityHigh}}
+
+	got := Resolve([]MatchedPolicy{hi, lo}, model.EnvProd, emptyFR(), model.StageOutput)
+	if got.Constraints.ReviewQueue != "privacy" {
+		t.Fatalf("equal-severity tie must keep highest-priority queue 'privacy', got %q", got.Constraints.ReviewQueue)
+	}
+	rev := Resolve([]MatchedPolicy{lo, hi}, model.EnvProd, emptyFR(), model.StageOutput)
+	if rev.Constraints.ReviewQueue != got.Constraints.ReviewQueue {
+		t.Fatalf("review-queue resolution must be order-independent, got %q vs %q", rev.Constraints.ReviewQueue, got.Constraints.ReviewQueue)
+	}
+}
+
 func contains(xs []string, want string) bool {
 	for _, x := range xs {
 		if x == want {

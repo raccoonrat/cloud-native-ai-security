@@ -274,7 +274,7 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 	key := ctx.TraceID + "|" + ctx.RequestID + "|" + string(ctx.Stage)
 	if existing, ok := s.get(key); ok {
 		return EvaluateResponse{
-			Decision: existing, EvidenceCommitStatus: "committed",
+			Decision: existing, EvidenceCommitStatus: evidenceStatus(existing),
 			IdempotentReplay: true, LatencyMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
@@ -316,42 +316,61 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 	// Minimal synchronous evidence completeness (§13.3/§13.5).
 	c.Evidence.EvidenceCompleteness = evidence.BuildFromContract(c, evidence.Enrichment{}).Completeness()
 
+	// Claim the idempotency slot BEFORE committing evidence so only the unique
+	// winner commits (a concurrent loser must not orphan an evidence record).
+	winner, stored := s.storeIfAbsent(key, c)
+	if !stored {
+		return EvaluateResponse{
+			Decision: winner, EvidenceCommitStatus: evidenceStatus(winner),
+			IdempotentReplay: true, LatencyMs: time.Since(start).Milliseconds(),
+		}, nil
+	}
+
 	commitStatus := "pending"
-	if opts.RequireEvidenceCommit || c.Evidence.EvidenceRequired {
+	if opts.RequireEvidenceCommit || winner.Evidence.EvidenceRequired {
 		evID, err := s.evidence.CommitMinimal(evidence.Minimal{
-			TraceID: c.TraceID, DecisionID: c.DecisionID, ContextRef: c.ContextID,
-			SignalRefs: c.ReplayBinding.SignalSnapshotRefs, PolicyRef: c.ReplayBinding.PolicyBundleVersion,
-			Action: c.Decision.Action, ReasonCode: c.Decision.ReasonCode, Stage: c.Stage,
+			TraceID: winner.TraceID, DecisionID: winner.DecisionID, ContextRef: winner.ContextID,
+			SignalRefs: winner.ReplayBinding.SignalSnapshotRefs, PolicyRef: winner.ReplayBinding.PolicyBundleVersion,
+			Action: winner.Decision.Action, ReasonCode: winner.Decision.ReasonCode, Stage: winner.Stage,
 		})
 		if err != nil {
 			commitStatus = "failed"
 		} else {
 			commitStatus = "committed"
-			c.Evidence.EvidenceRefs = []string{evID}
-			c.Evidence.MinimalEvidenceCommitted = true
+			winner.Evidence.EvidenceRefs = []string{evID}
+			winner.Evidence.MinimalEvidenceCommitted = true
+			s.updateStored(key, winner) // persist the evidence refs on the stored decision
 		}
 	}
 
-	winner, stored := s.storeIfAbsent(key, c)
-	if stored {
-		// Capture the replay snapshot (§14.1) for decision-level replay.
-		s.putSnapshot(winner.DecisionID, replay.Inputs{
-			OriginalDecisionID: winner.DecisionID,
-			Context:            ctx,
-			Signals:            fuseInput,
-			Mode:               mode,
-			OriginalAction:     winner.Decision.Action,
-			OriginalReason:     winner.Decision.ReasonCode,
-			EvalTime:           cfg.Now,
-			BundleVersion:      b.Version,
-		})
-		// Record as the latest non-superseded decision for (trace, stage) (§6.2).
-		s.putEffective(traceStageKey(ctx.TraceID, ctx.Stage), winner)
-	}
+	// Capture the replay snapshot (§14.1) for decision-level replay.
+	s.putSnapshot(winner.DecisionID, replay.Inputs{
+		OriginalDecisionID: winner.DecisionID,
+		Context:            ctx,
+		Signals:            fuseInput,
+		Mode:               mode,
+		OriginalAction:     winner.Decision.Action,
+		OriginalReason:     winner.Decision.ReasonCode,
+		EvalTime:           cfg.Now,
+		BundleVersion:      b.Version,
+	})
+	// Record as the latest non-superseded decision for (trace, stage) (§6.2).
+	s.putEffective(traceStageKey(ctx.TraceID, ctx.Stage), winner)
+
 	return EvaluateResponse{
 		Decision: winner, EvidenceCommitStatus: commitStatus,
-		IdempotentReplay: !stored, LatencyMs: time.Since(start).Milliseconds(),
+		IdempotentReplay: false, LatencyMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// evidenceStatus reports the committed/pending status of a stored decision,
+// so an idempotent replay reflects the original outcome rather than always
+// claiming "committed".
+func evidenceStatus(c decision.Contract) string {
+	if c.Evidence.MinimalEvidenceCommitted {
+		return "committed"
+	}
+	return "pending"
 }
 
 // ReplayDecision re-runs a stored decision's snapshot through the deterministic
@@ -694,4 +713,12 @@ func (s *Service) storeIfAbsent(key string, c decision.Contract) (decision.Contr
 	}
 	s.store[key] = c
 	return c, true
+}
+
+// updateStored overwrites an already-claimed decision (same idempotency key)
+// with its post-commit evidence refs. Only the winner of storeIfAbsent calls it.
+func (s *Service) updateStored(key string, c decision.Contract) {
+	s.mu.Lock()
+	s.store[key] = c
+	s.mu.Unlock()
 }
