@@ -102,6 +102,15 @@ func (s *Service) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	// Tool pre-execution decisions require the drift / trust / TOCTOU approval
+	// controls of the tool path (§15), which this generic runtime-decision route
+	// cannot perform. Reject stage=tool_pre_execution here so an external caller
+	// cannot route a tool action through the non-tool path to skip those checks.
+	if req.Context.Stage == model.StageToolPreExecution || req.ToolAction != nil {
+		writeError(w, http.StatusUnprocessableEntity, "tool_path_required",
+			"stage=tool_pre_execution must use the tool pre-execution path; it is not served by /v1/decisions:evaluate")
+		return
+	}
 	resp, err := s.Evaluate(req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "evaluation_failed", err.Error())

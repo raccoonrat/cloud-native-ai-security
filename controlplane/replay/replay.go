@@ -7,6 +7,7 @@ package replay
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/fusion"
 	"github.com/raccoonrat/cloud-native-ai-security/controlplane/idutil"
@@ -22,6 +23,10 @@ type Inputs struct {
 	Mode               model.Environment
 	OriginalAction     model.Action
 	OriginalReason     string
+	// EvalTime pins the instant used for signal TTL expiry at decision time so a
+	// replay drops exactly the same expired signals (deterministic by §3/§14).
+	// Zero means "no expiry" (TTL evaluation disabled), preserving older inputs.
+	EvalTime time.Time
 }
 
 // Result is the replay outcome (§14.2).
@@ -39,9 +44,14 @@ type Result struct {
 // fusion config, returning the consistency verdict. Replaying with the same
 // pinned versions MUST reproduce the original action (deterministic by §3/§4).
 func Run(in Inputs, bundle policy.Bundle, cfg fusion.Config) Result {
+	// Pin TTL expiry to the snapshot's evaluation instant so replay is
+	// deterministic regardless of the caller's clock.
+	if !in.EvalTime.IsZero() {
+		cfg.Now = in.EvalTime
+	}
 	fr := fusion.Fuse(in.Signals, in.Context, cfg)
 	matched := bundle.Match(in.Context, fr)
-	res := policy.Resolve(matched, in.Mode, fr)
+	res := policy.Resolve(matched, in.Mode, fr, in.Context.Stage)
 
 	replayedReason := res.EscalatedReason
 	if replayedReason == "" && len(res.ReasonCodes) > 0 {

@@ -29,7 +29,7 @@ func TestPairwiseConflicts(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := Resolve(c.in, model.EnvProd, emptyFR())
+			got := Resolve(c.in, model.EnvProd, emptyFR(), model.StageOutput)
 			if got.Action != c.want {
 				t.Fatalf("%s: want %s, got %s", c.name, c.want, got.Action)
 			}
@@ -43,7 +43,7 @@ func TestCombineConfirmationAndStepUp(t *testing.T) {
 		mp("a", 10, model.ActionRequireConfirmation, "confirm"),
 		mp("b", 10, model.ActionStepUpAuth, "stepup"),
 	}
-	got := Resolve(in, model.EnvProd, emptyFR())
+	got := Resolve(in, model.EnvProd, emptyFR(), model.StageToolPreExecution)
 	// step_up_auth (90) > require_confirmation (80) -> primary step_up_auth.
 	if got.Action != model.ActionStepUpAuth {
 		t.Fatalf("want step_up_auth primary, got %s", got.Action)
@@ -61,7 +61,7 @@ func TestBlockSuppressesTransformConstraints(t *testing.T) {
 		{PolicyID: "blocker", Priority: 10, Action: model.ActionBlock, ReasonCode: "block_critical",
 			Constraints: Constraints{EvidenceRequired: true}},
 	}
-	got := Resolve(in, model.EnvProd, emptyFR())
+	got := Resolve(in, model.EnvProd, emptyFR(), model.StageOutput)
 	if got.Action != model.ActionBlock {
 		t.Fatalf("want block, got %s", got.Action)
 	}
@@ -83,7 +83,7 @@ func TestMultiPolicyConstraintUnion(t *testing.T) {
 		{PolicyID: "reviewer", Priority: 30, Action: model.ActionRequireReview, ReasonCode: "review",
 			Constraints: Constraints{ReviewQueue: "privacy", ReviewQueueSeverity: model.SeverityHigh, EvidenceRequired: true}},
 	}
-	got := Resolve(in, model.EnvProd, emptyFR())
+	got := Resolve(in, model.EnvProd, emptyFR(), model.StageOutput)
 	if got.Action != model.ActionRequireReview {
 		t.Fatalf("want require_review (strength 100 > 60), got %s", got.Action)
 	}
@@ -107,7 +107,7 @@ func TestRedactionProfileTieEscalates(t *testing.T) {
 		{PolicyID: "b", Priority: 10, Action: model.ActionRedact, ReasonCode: "rb",
 			Constraints: Constraints{RedactionProfile: "p2", RedactionRank: 1}},
 	}
-	got := Resolve(in, model.EnvProd, emptyFR())
+	got := Resolve(in, model.EnvProd, emptyFR(), model.StageOutput)
 	if got.Action != model.ActionRequireReview {
 		t.Fatalf("want escalation to require_review on tie, got %s", got.Action)
 	}
@@ -116,16 +116,27 @@ func TestRedactionProfileTieEscalates(t *testing.T) {
 	}
 }
 
-// No matched policy -> environment-specific fail behavior (§20.2).
+// No matched policy -> environment-specific fail behavior (§20.2). The terminal
+// fail-closed action must be valid for the stage per the Stage x Action Matrix:
+// deny for input/retrieval/tool_pre_execution, block for output.
 func TestDefaultDecisionFailClosed(t *testing.T) {
 	fr := emptyFR()
 	fr.HighestSeverity = model.SeverityHigh
-	got := Resolve(nil, model.EnvProd, fr)
-	if got.Action != model.ActionDeny {
-		t.Fatalf("prod high-risk no-match must fail closed (deny), got %s", got.Action)
+
+	for _, stage := range []model.Stage{model.StageInput, model.StageRetrieval, model.StageToolPreExecution} {
+		got := Resolve(nil, model.EnvProd, fr, stage)
+		if got.Action != model.ActionDeny {
+			t.Fatalf("prod high-risk no-match at %s must fail closed (deny), got %s", stage, got.Action)
+		}
 	}
 
-	gotShadow := Resolve(nil, model.EnvShadow, fr)
+	// Output stage must fail closed with `block` (deny is not allowed in output).
+	gotOutput := Resolve(nil, model.EnvProd, fr, model.StageOutput)
+	if gotOutput.Action != model.ActionBlock {
+		t.Fatalf("prod high-risk no-match at output must fail closed (block), got %s", gotOutput.Action)
+	}
+
+	gotShadow := Resolve(nil, model.EnvShadow, fr, model.StageOutput)
 	if gotShadow.Action != model.ActionAuditOnly {
 		t.Fatalf("shadow no-match must be audit_only, got %s", gotShadow.Action)
 	}
@@ -140,8 +151,8 @@ func TestResolveOrderIndependence(t *testing.T) {
 	}
 	b := []MatchedPolicy{a[2], a[0], a[1]}
 
-	r1 := Resolve(a, model.EnvProd, emptyFR())
-	r2 := Resolve(b, model.EnvProd, emptyFR())
+	r1 := Resolve(a, model.EnvProd, emptyFR(), model.StageOutput)
+	r2 := Resolve(b, model.EnvProd, emptyFR(), model.StageOutput)
 	if r1.Action != r2.Action || r1.Constraints.ReviewQueue != r2.Constraints.ReviewQueue {
 		t.Fatalf("resolve not order-independent: %+v vs %+v", r1, r2)
 	}

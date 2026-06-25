@@ -125,6 +125,13 @@ func (s *Service) Evaluate(req EvaluateRequest) (EvaluateResponse, error) {
 	if err := ctx.Stage.Validate(); err != nil {
 		return EvaluateResponse{}, err
 	}
+	// A tool action must go through the tool pre-execution path so it gets drift
+	// detection, trust resolution, and TOCTOU approval re-validation (§15). The
+	// generic path trusts ctx.Tool as-is and must not be used to carry a tool
+	// action, otherwise those mandatory controls are bypassed.
+	if req.ToolAction != nil {
+		return EvaluateResponse{}, fmt.Errorf("service: tool_action must use the tool pre-execution path (EvaluateToolAction), not Evaluate")
+	}
 	if ctx.TraceID == "" || ctx.RequestID == "" {
 		return EvaluateResponse{}, fmt.Errorf("service: trace_id and request_id are required")
 	}
@@ -269,18 +276,24 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 		}, nil
 	}
 
-	fr := fusion.Fuse(fuseInput, ctx, s.fusionCfg)
+	// Read the active bundle under the lock (immutable; safe to read after) and
+	// pin TTL expiry to this request's evaluation instant (§8.3 signal expiry).
+	b := s.activeBundle()
+	cfg := s.fusionCfg
+	cfg.Now = start.UTC()
+
+	fr := fusion.Fuse(fuseInput, ctx, cfg)
 	fr.DroppedSignals = append(dropped, fr.DroppedSignals...)
 
-	matched := s.bundle.Match(ctx, fr)
-	res := policy.Resolve(matched, mode, fr)
+	matched := b.Match(ctx, fr)
+	res := policy.Resolve(matched, mode, fr, ctx.Stage)
 
 	c := decision.Build(decision.Inputs{
 		Context:             ctx,
 		Signals:             fuseInput,
 		FusedRisk:           fr,
 		Resolution:          res,
-		BundleVersion:       s.bundle.Version,
+		BundleVersion:       b.Version,
 		ThresholdVer:        s.cfg.ThresholdConfigVersion,
 		MatrixVersion:       s.matrix.MatrixVersion,
 		ProvenanceMode:      s.cfg.ProvenanceMode,
@@ -326,6 +339,7 @@ func (s *Service) decide(ctx model.Context, mode model.Environment, opts Options
 			Mode:               mode,
 			OriginalAction:     winner.Decision.Action,
 			OriginalReason:     winner.Decision.ReasonCode,
+			EvalTime:           cfg.Now,
 		})
 		// Record as the latest non-superseded decision for (trace, stage) (§6.2).
 		s.putEffective(traceStageKey(ctx.TraceID, ctx.Stage), winner)
@@ -343,7 +357,7 @@ func (s *Service) ReplayDecision(decisionID string) (replay.Result, error) {
 	if !ok {
 		return replay.Result{}, fmt.Errorf("service: no replay snapshot for decision %q", decisionID)
 	}
-	return replay.Run(snap, s.bundle, s.fusionCfg), nil
+	return replay.Run(snap, s.activeBundle(), s.fusionCfg), nil
 }
 
 // ReleaseGateRequest evaluates a candidate policy bundle against the runtime's
@@ -434,6 +448,17 @@ func (s *Service) ActiveBundleVersion() string {
 	return s.bundle.Version
 }
 
+// activeBundle returns a snapshot of the currently active policy bundle under
+// the lock. Bundles are immutable (activation is a version-pointer switch), so
+// the returned value is safe to read without further synchronization. This is
+// the ONLY way the decision path may read s.bundle, to avoid racing with
+// ActivateBundle / RollbackBundle.
+func (s *Service) activeBundle() policy.Bundle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bundle
+}
+
 // activationPermitted maps a gate decision + target environment to whether the
 // candidate may be promoted onto the enforcing path (§18.2).
 func activationPermitted(d gate.Decision, env model.Environment) bool {
@@ -486,17 +511,23 @@ func (s *Service) AugmentJudge(traceID string, stage model.Stage, judge []model.
 	fuseInput = append(fuseInput, kept...)
 	fuseInput = append(fuseInput, synthetic...)
 
-	fr := fusion.Fuse(fuseInput, ctx, s.fusionCfg)
+	// Re-run the deterministic core over the pinned snapshot: same active bundle
+	// read under the lock, same evaluation instant (§6.2 / §14 determinism).
+	b := s.activeBundle()
+	cfg := s.fusionCfg
+	cfg.Now = snap.EvalTime
+
+	fr := fusion.Fuse(fuseInput, ctx, cfg)
 	fr.DroppedSignals = append(dropped, fr.DroppedSignals...)
-	matched := s.bundle.Match(ctx, fr)
-	res := policy.Resolve(matched, snap.Mode, fr)
+	matched := b.Match(ctx, fr)
+	res := policy.Resolve(matched, snap.Mode, fr, ctx.Stage)
 
 	revised := decision.Build(decision.Inputs{
 		Context:        ctx,
 		Signals:        fuseInput,
 		FusedRisk:      fr,
 		Resolution:     res,
-		BundleVersion:  s.bundle.Version,
+		BundleVersion:  b.Version,
 		ThresholdVer:   s.cfg.ThresholdConfigVersion,
 		MatrixVersion:  s.matrix.MatrixVersion,
 		ProvenanceMode: s.cfg.ProvenanceMode,
@@ -516,6 +547,7 @@ func (s *Service) AugmentJudge(traceID string, stage model.Stage, judge []model.
 	s.putSnapshot(revised.DecisionID, replay.Inputs{
 		OriginalDecisionID: revised.DecisionID, Context: ctx, Signals: fuseInput, Mode: snap.Mode,
 		OriginalAction: revised.Decision.Action, OriginalReason: revised.Decision.ReasonCode,
+		EvalTime: snap.EvalTime,
 	})
 
 	changed := revised.Decision.Action != prev.Decision.Action

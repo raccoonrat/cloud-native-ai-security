@@ -47,9 +47,11 @@ type Resolution struct {
 }
 
 // Resolve selects the primary action and merges constraints (Spec v1.6 §4.2).
-func Resolve(matched []MatchedPolicy, env model.Environment, fr model.FusedRisk) Resolution {
+// stage is required so the no-match fail-closed default can pick a terminal
+// action that is valid for the stage per the Stage x Action Matrix (§2).
+func Resolve(matched []MatchedPolicy, env model.Environment, fr model.FusedRisk, stage model.Stage) Resolution {
 	if len(matched) == 0 {
-		return defaultDecision(env, fr)
+		return defaultDecision(env, fr, stage)
 	}
 
 	// Sort by (priority desc, policy_id asc) for a deterministic order.
@@ -178,13 +180,17 @@ func unionSorted(a, b []string) []string {
 }
 
 // defaultDecision is the fail behavior when no policy matched (Spec v1.5 §20.2).
-func defaultDecision(env model.Environment, fr model.FusedRisk) Resolution {
+// The terminal action is stage-aware so it is always valid per the Stage x
+// Action Matrix: output stops are `block`, every other stage stops are `deny`
+// (deny is not allowed in `output`). A stage-agnostic deny here would otherwise
+// fail decision validation at the output stage and break fail-closed.
+func defaultDecision(env model.Environment, fr model.FusedRisk, stage model.Stage) Resolution {
 	highRisk := fr.HighestSeverity >= model.SeverityHigh || fr.HasFlag(model.FlagNeedsReview)
 	switch env {
 	case model.EnvProd:
 		if highRisk {
-			return Resolution{Action: model.ActionDeny, ReasonCodes: []string{"no_match_prod_high_risk_fail_closed"},
-				Confidence: fr.ConfidenceSummary.Representative}
+			return Resolution{Action: terminalAction(stage), ReasonCodes: []string{"no_match_prod_high_risk_fail_closed"},
+				Constraints: Constraints{EvidenceRequired: true, AuditRequired: true}, Confidence: fr.ConfidenceSummary.Representative}
 		}
 		return Resolution{Action: model.ActionAuditOnly, ReasonCodes: []string{"no_match_prod_low_risk_fallback"},
 			Constraints: Constraints{AuditRequired: true}, Confidence: fr.ConfidenceSummary.Representative}
@@ -195,4 +201,13 @@ func defaultDecision(env model.Environment, fr model.FusedRisk) Resolution {
 		return Resolution{Action: model.ActionAuditOnly, ReasonCodes: []string{"no_match_shadow_audit"},
 			Constraints: Constraints{AuditRequired: true}, Confidence: fr.ConfidenceSummary.Representative}
 	}
+}
+
+// terminalAction returns the strongest stop action that is valid for the stage
+// per the Stage x Action Matrix (§2): `block` at output, `deny` elsewhere.
+func terminalAction(stage model.Stage) model.Action {
+	if stage == model.StageOutput {
+		return model.ActionBlock
+	}
+	return model.ActionDeny
 }
