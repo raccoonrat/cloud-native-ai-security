@@ -121,6 +121,7 @@ Post–Sprint-6 fixes from a full architecture / security review. Details in
 
 | Area | Fix |
 | ---- | --- |
+| **Decision integrity** | Hash/signature now cover constraints, approval binding, decision mode, and revision lineage (`hash_version=dch_v2`); enforcement re-derives the hash (`VerifyIntegrity`) so tampered fields are rejected |
 | **Fail-closed** | Output-stage no-match → `block` (not invalid `deny`) |
 | **Tool bypass** | Generic evaluate route rejects tool stage / `tool_action` |
 | **Signal TTL** | Live fusion pins eval time; replay snapshots carry `eval_time` |

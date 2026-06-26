@@ -9,6 +9,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Security — P0 (critical)
 
 #### Fixed
+- **Decision hash now covers the full enforced contract** (`decision.hashCore`,
+  `Validate`, `VerifySignature`, new `VerifyIntegrity`): the integrity hash (and
+  therefore the signature) previously covered only
+  trace/context/stage/action/reason + replay versions, leaving `constraints`
+  (redaction profile, scope restriction, review queue), `approval_binding`
+  (the TOCTOU anchor), `decision_mode` (environment), and the async revision
+  lineage (`decision_revision` / `supersedes_decision_id`) OUTSIDE the
+  signature. A signed decision could be mutated (e.g. `redaction_profile`
+  downgraded to `none`, approval binding swapped, a `shadow`/`audit_only`
+  decision replayed as `prod`, a superseded provisional re-presented as current)
+  while still verifying. The hash now binds all of those, carries a
+  `hash_version` (`dch_v2`) for domain separation, and enforcement re-derives the
+  hash from the contract fields (`VerifySignature` → `VerifyIntegrity`) so a
+  tampered field left with an intact `(hash, signature)` pair is rejected.
+  `decision.Validate` also recomputes and compares the hash.
 - **Output-stage fail-closed** (`policy.defaultDecision`): prod high-risk no-match now
   returns `block` at `output` and `deny` at other stages, matching the Stage × Action
   Matrix. Previously an invalid `deny` at `output` failed `decision.Validate` and
